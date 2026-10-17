@@ -1,0 +1,37 @@
+node_modules/
+.turbo/
+dist/
+.expo/
+*.local
+.env
+.env.*
+!.env.example
+
+# Go
+**/bin/
+**/tmp/
+*.exe
+*.test
+coverage.out
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+ml/.venv/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Media / renders (local)
+**/renders/
+apps/mobile/assets/audio/*.mp3
+apps/mobile/assets/audio/*.m4a
+!apps/mobile/assets/audio/.gitkeep

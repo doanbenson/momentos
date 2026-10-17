@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "Momentos",
+    "slug": "momentos",
+    "scheme": "momentos",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"],
+    "plugins": ["expo-router"]
+  }
+}

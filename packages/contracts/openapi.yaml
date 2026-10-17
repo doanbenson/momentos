@@ -1,0 +1,199 @@
+openapi: 3.1.0
+info:
+  title: Momentos API
+  version: 0.0.1
+  description: MVP contracts — Moment, Cut, Asset, Song Pick, jobs.
+servers:
+  - url: http://localhost:8080
+    description: gateway
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+      responses:
+        "200":
+          description: OK
+  /v1/moments:
+    post:
+      summary: Create Moment from Week Intake
+      operationId: createMoment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMomentRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Moment"
+  /v1/moments/{momentId}:
+    get:
+      summary: Get Moment
+      operationId: getMoment
+      parameters:
+        - $ref: "#/components/parameters/MomentId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Moment"
+  /v1/moments/{momentId}/cut:
+    get:
+      summary: Get Cut
+      operationId: getCut
+      parameters:
+        - $ref: "#/components/parameters/MomentId"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cut"
+    patch:
+      summary: Apply Editor changes to Cut / Asset ordering
+      operationId: patchCut
+      parameters:
+        - $ref: "#/components/parameters/MomentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditorPatch"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Cut"
+components:
+  parameters:
+    MomentId:
+      name: momentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    AssetType:
+      type: string
+      enum: [photo, video, voice]
+    SongPick:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: string
+          example: live-a-life-you-will-remember
+        title:
+          type: string
+        platformSongId:
+          type: string
+          description: Instagram/Meta music id when known
+    AssetRef:
+      type: object
+      required: [id, type]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/AssetType"
+    CreateMomentRequest:
+      type: object
+      required: [assetIds]
+      properties:
+        assetIds:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            format: uuid
+        songPickId:
+          type: string
+          default: live-a-life-you-will-remember
+    Moment:
+      type: object
+      required: [id, status, songPick, assetIds]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [intake, drafting, rendering, ready, failed]
+        songPick:
+          $ref: "#/components/schemas/SongPick"
+        assetIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        cutId:
+          type: string
+          format: uuid
+        renderUrl:
+          type: string
+          format: uri
+    Cut:
+      type: object
+      required: [id, momentId, version, clips]
+      properties:
+        id:
+          type: string
+          format: uuid
+        momentId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        songPickId:
+          type: string
+        clips:
+          type: array
+          items:
+            type: object
+            required: [assetId, order]
+            properties:
+              assetId:
+                type: string
+                format: uuid
+              order:
+                type: integer
+              startMs:
+                type: integer
+              endMs:
+                type: integer
+    EditorPatch:
+      type: object
+      properties:
+        reorderAssetIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        replace:
+          type: object
+          properties:
+            fromAssetId:
+              type: string
+              format: uuid
+            toAssetId:
+              type: string
+              format: uuid
+        removeAssetId:
+          type: string
+          format: uuid
+        reDraft:
+          type: boolean
+        reRender:
+          type: boolean

@@ -1,0 +1,8 @@
+go 1.22
+
+use (
+	./services/gateway
+	./services/moment-service
+	./services/media-service
+	./services/render-service
+)
