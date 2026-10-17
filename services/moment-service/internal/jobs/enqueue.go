@@ -1,7 +1,5 @@
 package jobs
 
-// Enqueuer publishes async work for ml (cut-draft) and render-service (render).
-type Enqueuer struct{}
-
-func (e *Enqueuer) CutDraft(momentID string) error  { return nil }
-func (e *Enqueuer) Render(momentID, cutID string) error { return nil }
+// Job enqueue/claim/complete lives in internal/business + internal/database
+// (Postgres SKIP LOCKED per ADR 0001). This package is retained as the
+// documented jobs layer seam from claude/context.md.

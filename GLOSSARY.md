@@ -56,3 +56,7 @@ _Avoid_: catalog browse (MVP), playlist
 **Editor**:
 The post-processing UI where the user previews the Moment and changes parts of the Cut (or swaps Assets) before saving or sharing.
 _Avoid_: timeline tool, CapCut, studio
+
+**Beat Grid**:
+The deterministic set of beat/onset timestamps derived from Edit Audio that legal Cut clip boundaries must snap to.
+_Avoid_: tempo map (alone), waveform, BPM (alone)

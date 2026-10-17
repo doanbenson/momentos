@@ -26,6 +26,22 @@ pnpm install
 pnpm mobile
 ```
 
+## Test on your phone (Expo Go)
+
+Starts gateway / moment / media / render / ML worker, points the app at your LAN IP, then opens Expo:
+
+```powershell
+# Same Wi-Fi as your phone
+pnpm phone
+
+# Or Expo tunnel (if LAN/firewall blocks the device)
+pnpm phone:tunnel
+```
+
+Fill `apps/mobile/.env` with Supabase URL + anon key (anonymous sign-in enabled). Scan the QR code in Expo Go.
+
+Stitch MCP: copy `mcp.json.example` → `.cursor/mcp.json` and add your key (`.cursor/` is gitignored).
+
 ## MVP Song Pick
 
 Hard-coded: **Live A Life You Will Remember** (`apps/mobile/src/config/song-pick.ts`).

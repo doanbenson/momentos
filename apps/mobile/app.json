@@ -5,7 +5,35 @@
     "scheme": "momentos",
     "version": "0.0.1",
     "orientation": "portrait",
-    "platforms": ["ios", "android"],
-    "plugins": ["expo-router"]
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "userInterfaceStyle": "dark",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Momentos to use your photos and videos for Week Intake.",
+          "cameraPermission": "Allow Momentos to record video for Week Intake.",
+          "microphonePermission": "Allow Momentos to record voice for Week Intake."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Momentos to record voice Assets."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Momentos to save your Moment to the library.",
+          "savePhotosPermission": "Allow Momentos to save your Moment to the library."
+        }
+      ],
+      "expo-font"
+    ]
   }
 }

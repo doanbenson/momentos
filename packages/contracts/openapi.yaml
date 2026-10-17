@@ -1,22 +1,112 @@
 openapi: 3.1.0
 info:
   title: Momentos API
-  version: 0.0.1
-  description: MVP contracts — Moment, Cut, Asset, Song Pick, jobs.
+  version: 0.0.2
+  description: |
+    MVP contracts — Moment, Cut, Asset, Song Pick, jobs.
+
+    **Auth (mobile → gateway):** `Authorization: Bearer <supabase_access_token>`.
+    Gateway verifies JWT, overwrites `X-Momentos-Principal` with `sub`, and calls
+    peers with `Authorization: Bearer <INTERNAL_SERVICE_TOKEN>`.
+
+    **Extensions (moment-api workstream):** Idempotency-Key on create; BFF aggregate
+    fields on GET Moment (`assets`, nested `cut`); internal job claim/complete
+    routes on moment-service (not exposed via gateway).
 servers:
   - url: http://localhost:8080
-    description: gateway
+    description: gateway (mobile-facing)
+  - url: http://localhost:8081
+    description: moment-service (internal peers / workers)
 paths:
   /healthz:
     get:
       summary: Liveness
+      security: []
       responses:
         "200":
           description: OK
+
+  /v1/assets:
+    post:
+      summary: Create pending Asset + signed upload URL
+      operationId: createAsset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, mimeType, byteSize]
+              properties:
+                type:
+                  $ref: "#/components/schemas/AssetType"
+                mimeType:
+                  type: string
+                byteSize:
+                  type: integer
+                durationMs:
+                  type: integer
+    get:
+      summary: List Assets by ids
+      operationId: listAssets
+      parameters:
+        - name: ids
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Comma-separated Asset UUIDs
+        - name: sign
+          in: query
+          schema:
+            type: boolean
+  /v1/assets/{assetId}:
+    get:
+      summary: Get Asset
+      operationId: getAsset
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /v1/assets/{assetId}/complete:
+    post:
+      summary: Complete Asset upload
+      operationId: completeAsset
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+  /v1/song-picks:
+    get:
+      summary: List Song Picks
+      operationId: listSongPicks
+  /v1/song-picks/{songPickId}:
+    get:
+      summary: Get Song Pick (optional signed Edit Audio URL)
+      operationId: getSongPick
+      parameters:
+        - name: songPickId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: sign
+          in: query
+          schema:
+            type: boolean
+
   /v1/moments:
     post:
       summary: Create Moment from Week Intake
       operationId: createMoment
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -25,20 +115,24 @@ paths:
               $ref: "#/components/schemas/CreateMomentRequest"
       responses:
         "201":
-          description: Created
+          description: Created (status drafting; cut-draft enqueued)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Moment"
+        "409":
+          description: Idempotency-Key reused with a different body
   /v1/moments/{momentId}:
     get:
-      summary: Get Moment
+      summary: Get Moment (gateway BFF aggregate)
       operationId: getMoment
       parameters:
         - $ref: "#/components/parameters/MomentId"
       responses:
         "200":
-          description: OK
+          description: |
+            Lean Moment from moment-service; gateway may enrich with `assets`,
+            nested `cut`, and signed `renderUrl` when ready.
           content:
             application/json:
               schema:
@@ -56,6 +150,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Cut"
+        "404":
+          description: Cut not drafted yet
     patch:
       summary: Apply Editor changes to Cut / Asset ordering
       operationId: patchCut
@@ -74,7 +170,80 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Cut"
+
+  # --- moment-service internal (workers; not on gateway) ---
+  /v1/internal/jobs/claim:
+    post:
+      summary: Claim next queued job (SKIP LOCKED)
+      operationId: claimJob
+      description: Internal — Authorization Bearer INTERNAL_SERVICE_TOKEN
+      security:
+        - InternalToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimJobRequest"
+      responses:
+        "200":
+          description: Claimed job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "204":
+          description: No job available
+  /v1/internal/jobs/{jobId}/complete:
+    post:
+      summary: Complete a claimed job (success or failure)
+      operationId: completeJob
+      security:
+        - InternalToken: []
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteJobRequest"
+      responses:
+        "200":
+          description: Accepted
+  /v1/internal/jobs/{jobId}/heartbeat:
+    post:
+      summary: Extend job lease while running
+      operationId: heartbeatJob
+      security:
+        - InternalToken: []
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workerId]
+              properties:
+                workerId:
+                  type: string
+      responses:
+        "200":
+          description: Lease extended
+
 components:
+  securitySchemes:
+    SupabaseJWT:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Supabase access token (gateway)
+    InternalToken:
+      type: http
+      scheme: bearer
+      description: INTERNAL_SERVICE_TOKEN (service-to-service / workers)
   parameters:
     MomentId:
       name: momentId
@@ -83,6 +252,20 @@ components:
       schema:
         type: string
         format: uuid
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Deduplicate create Moment; same key + body returns original 201 body
   schemas:
     AssetType:
       type: string
@@ -108,6 +291,11 @@ components:
           format: uuid
         type:
           $ref: "#/components/schemas/AssetType"
+        thumbnailUrl:
+          type: string
+          format: uri
+        durationMs:
+          type: integer
     CreateMomentRequest:
       type: object
       required: [assetIds]
@@ -115,6 +303,7 @@ components:
         assetIds:
           type: array
           maxItems: 10
+          minItems: 1
           items:
             type: string
             format: uuid
@@ -138,12 +327,27 @@ components:
           items:
             type: string
             format: uuid
+        assets:
+          type: array
+          description: BFF-only enrichment (gateway GET)
+          items:
+            $ref: "#/components/schemas/AssetRef"
         cutId:
           type: string
           format: uuid
+        cut:
+          description: BFF-only nested Cut when drafted
+          $ref: "#/components/schemas/Cut"
         renderUrl:
           type: string
           format: uri
+        renderStorageKey:
+          type: string
+          description: Internal/storage key; gateway may sign into renderUrl
+        errorCode:
+          type: string
+        errorMessage:
+          type: string
     Cut:
       type: object
       required: [id, momentId, version, clips]
@@ -197,3 +401,66 @@ components:
           type: boolean
         reRender:
           type: boolean
+    ClaimJobRequest:
+      type: object
+      required: [jobType, workerId]
+      properties:
+        jobType:
+          type: string
+          enum: [cut-draft, render]
+        workerId:
+          type: string
+    CompleteJobRequest:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+        errorCode:
+          type: string
+        errorMessage:
+          type: string
+        clips:
+          type: array
+          description: cut-draft success — clip list (service assigns Cut id/version)
+          items:
+            type: object
+        cut:
+          $ref: "#/components/schemas/Cut"
+        songPickId:
+          type: string
+        renderStorageKey:
+          type: string
+        renderUrl:
+          type: string
+          format: uri
+    Job:
+      type: object
+      required: [id, momentId, jobType, status, attempt, payload]
+      properties:
+        id:
+          type: string
+          format: uuid
+        momentId:
+          type: string
+          format: uuid
+        jobType:
+          type: string
+          enum: [cut-draft, render]
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, superseded]
+        attempt:
+          type: integer
+        payload:
+          type: object
+          additionalProperties: true
+        cutVersion:
+          type: integer
+        claimedBy:
+          type: string
+        leaseUntil:
+          type: string
+          format: date-time
+security:
+  - SupabaseJWT: []

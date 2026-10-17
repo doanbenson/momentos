@@ -8,6 +8,7 @@ export const MVP_SONG_PICK = {
   platformSong: {
     provider: "instagram" as const,
     displayName: "Live A Life You Will Remember",
-    // musicId: "", // TODO
+    /** TODO: Meta music library id for checklist deep-link accuracy */
+    musicId: undefined as string | undefined,
   },
 } as const;

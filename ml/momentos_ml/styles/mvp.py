@@ -1,4 +1,10 @@
-"""Hard-coded MVP Style Profile + Vibe for Live A Life You Will Remember."""
+"""Hard-coded MVP Style Profile + Vibe for Live A Life You Will Remember.
+
+Song Pick / Edit Audio mirrors:
+- apps/mobile/src/config/song-pick.ts (MVP_SONG_PICK)
+- media-service config for Platform Song + Edit Audio object path
+ml does not invent a second Song catalog — use momentos_ml.config.MVP_SONG_PICK_ID.
+"""
 
 MVP_STYLE_PROFILE_ID = "life-on-film-v0"
 MVP_VIBE_ID = "live-a-life-remember-v0"

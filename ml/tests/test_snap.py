@@ -1,0 +1,58 @@
+"""Tests for snap_to_grid (pure; no librosa)."""
+
+import pytest
+
+from momentos_ml.beat.grid import BeatGrid
+from momentos_ml.beat.snap import PlannerPlacement, SnapError, snap_to_grid
+from momentos_ml.features.extract import AssetFeature
+
+
+def _grid(beats: list[int]) -> BeatGrid:
+    return BeatGrid(
+        song_pick_id="live-a-life-you-will-remember",
+        audio_content_hash="test",
+        beat_ms=beats,
+        tempo_bpm=120.0,
+    )
+
+
+def test_snap_maps_half_open_beats_to_ms():
+    grid = _grid([0, 500, 1000, 1500, 2000])
+    placements = [
+        PlannerPlacement(asset_id="a1", start_beat=0, end_beat=2),
+        PlannerPlacement(asset_id="a2", start_beat=2, end_beat=4),
+    ]
+    clips = snap_to_grid(placements, grid)
+    assert clips[0].start_ms == 0 and clips[0].end_ms == 1000
+    assert clips[1].start_ms == 1000 and clips[1].end_ms == 2000
+    assert [c.order for c in clips] == [0, 1]
+
+
+def test_snap_extends_past_last_beat():
+    grid = _grid([0, 500, 1000])
+    placements = [PlannerPlacement(asset_id="a1", start_beat=1, end_beat=3)]
+    clips = snap_to_grid(placements, grid)
+    assert clips[0].start_ms == 500
+    assert clips[0].end_ms == 1500  # last + median gap (500)
+
+
+def test_snap_trims_video_to_source_duration():
+    grid = _grid([0, 500, 1000, 1500, 2000])
+    features = [
+        AssetFeature(
+            asset_id="v1", type="video", intake_order=0, duration_ms=600
+        )
+    ]
+    placements = [PlannerPlacement(asset_id="v1", start_beat=0, end_beat=4)]
+    clips = snap_to_grid(placements, grid, features)
+    assert clips[0].start_ms == 0
+    assert clips[0].end_ms == 600
+
+
+def test_snap_rejects_invalid_range():
+    grid = _grid([0, 500, 1000])
+    with pytest.raises(SnapError):
+        snap_to_grid(
+            [PlannerPlacement(asset_id="a1", start_beat=2, end_beat=2)],
+            grid,
+        )

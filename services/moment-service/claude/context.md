@@ -31,5 +31,7 @@ API (internal/api)
 
 - Supabase Postgres
 - media-service (Asset IDs must exist)
-- Job broker (scaffold: env `JOB_QUEUE_URL`)
+- Postgres job queue (`jobs` table, SKIP LOCKED) — ADR 0001
+- media-service (Asset ready check + sign-download for job payloads)
 - MVP Song Pick constants from env / shared config
+- `INTERNAL_SERVICE_TOKEN`, `DATABASE_URL`
