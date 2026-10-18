@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -106,10 +107,10 @@ func (s *Service) resolveJobAssets(ctx context.Context, principal string, assetI
 
 	signed, err := s.Media.SignDownload(ctx, principal, assetIDs, songPickID)
 	if err != nil {
-		// Fallback: metadata only from GET
+		// Fallback: signed GET (sign=true) so Reflection storageUrl still reaches ML.
 		metas, gerr := s.Media.GetAssets(ctx, principal, assetIDs)
 		if gerr != nil {
-			return nil, "", fmt.Errorf("%w: sign/list assets: %v", ErrUpstream, err)
+			return nil, "", fmt.Errorf("%w: sign/list assets: %v / %v", ErrUpstream, err, gerr)
 		}
 		byID := map[uuid.UUID]struct {
 			Type       string
@@ -146,6 +147,12 @@ func (s *Service) resolveJobAssets(ctx context.Context, principal string, assetI
 				out[i] = JobAsset{ID: id, Type: t, Order: i, DurationMs: m.DurationMs, Width: m.Width, Height: m.Height, StorageURL: m.URL}
 			}
 		}
+		if n := countMissingStorageURL(out); n > 0 {
+			return nil, "", fmt.Errorf(
+				"%w: sign-download failed (%v) and GET fallback missing storageUrl for %d/%d Assets",
+				ErrUpstream, err, n, len(out),
+			)
+		}
 		return out, editURL, nil
 	}
 
@@ -175,7 +182,23 @@ func (s *Service) resolveJobAssets(ctx context.Context, principal string, assetI
 			out[i].Order = i
 		}
 	}
+	if n := countMissingStorageURL(out); n > 0 {
+		return nil, "", fmt.Errorf(
+			"%w: sign-download returned %d/%d Assets without storageUrl (media BaseURL=%q)",
+			ErrUpstream, n, len(out), s.Media.BaseURL,
+		)
+	}
 	return out, signed.EditAudioURL, nil
+}
+
+func countMissingStorageURL(assets []JobAsset) int {
+	n := 0
+	for _, a := range assets {
+		if strings.TrimSpace(a.StorageURL) == "" {
+			n++
+		}
+	}
+	return n
 }
 
 func (s *Service) enqueueCutDraft(ctx context.Context, principal string, m *database.Moment, revise bool, patch *EditorPatch) error {

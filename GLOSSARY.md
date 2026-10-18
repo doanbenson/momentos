@@ -9,12 +9,12 @@ The product name. The monorepo and user-facing brand.
 _Avoid_: Momento (as an identifier), Life On Film (as the product name)
 
 **Moment**:
-One composed audiovisual piece created from a user's selected media, optional voice, and a background song.
+One composed audiovisual piece created from a user's selected media, a Reflection, and a background song.
 _Avoid_: film, reel, project, video (as the name for the whole thing)
 
 **Cut**:
 The structured, editable edit plan for a Moment (timeline, pacing, transitions, sync). The source of truth for what will render; the finished file is derived from it.
-_Avoid_: edit (as a noun for the plan), timeline (alone), render plan
+_Avoid_: edit (as a noun for the plan), timeline (alone), render plan, master_timeline (as a persisted source of truth)
 
 **Style Profile**:
 A versioned base grammar for cutting (transition types, silence handling, grade presets). Applied together with **Vibe**, which further drives pacing, sync emphasis, and Song family.
@@ -25,8 +25,12 @@ The derived audiovisual file produced from a Cut. Not the source of truth.
 _Avoid_: export (when you mean the file itself), final edit
 
 **Asset**:
-A stored media unit the user contributes — a photo, video clip, or voice recording — referenced by a Moment.
+A stored media unit the user contributes — a photo, video clip, or voice recording — referenced by a Moment. System media (Edit Audio, SFX, overlays) are not Assets.
 _Avoid_: file, upload, media (as the noun for one item), attachment
+
+**Reflection**:
+A spoken answer to a prompt question, stored as a voice or talking-head video Asset and used as the Act 1 hook of a Moment. A role over an Asset, not a separate media store.
+_Avoid_: voiceover (alone), talking head (as the domain noun), confession
 
 **Vibe**:
 A labeled mood/energy class for a Moment. It drives Song matching and also modulates how the Cut is drafted (pacing, emphasis, sync) on top of the Style Profile.
@@ -45,7 +49,7 @@ The paired idea of Edit Audio (for cutting) + Platform Song (for legal Reel publ
 _Avoid_: catalog (Momentos does not own Meta’s library)
 
 **Week Intake**:
-The onboarding ask for a small set of Assets from the user’s recent week (photos, videos, and/or voice recordings) that become the input for one Moment.
+The onboarding ask for Assets from the user’s recent week — one Reflection plus photo/video clips — that become the input for one Moment.
 _Avoid_: onboarding dump, album, camera roll, project
 
 **Song Pick**:

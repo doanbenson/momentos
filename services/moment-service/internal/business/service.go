@@ -270,6 +270,12 @@ func (s *Service) GetMoment(ctx context.Context, principal string, id uuid.UUID)
 		return nil, err
 	}
 	dto := s.toMomentDTO(m)
+	if m.Status == database.StatusReady && m.RenderStorageKey != nil && *m.RenderStorageKey != "" &&
+		s.Media != nil && s.Media.BaseURL != "" {
+		if url, err := s.Media.SignRenderURL(ctx, principal, *m.RenderStorageKey); err == nil && url != "" {
+			dto.RenderURL = &url
+		}
+	}
 	return &dto, nil
 }
 

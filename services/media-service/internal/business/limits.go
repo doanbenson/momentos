@@ -1,6 +1,10 @@
 package business
 
-import "github.com/doanbenson/momentos/services/media-service/internal/database"
+import (
+	"strings"
+
+	"github.com/doanbenson/momentos/services/media-service/internal/database"
+)
 
 const (
 	MiB = 1024 * 1024
@@ -19,6 +23,9 @@ var mimeAllowlist = map[database.AssetType]map[string]struct{}{
 		"image/jpeg": {},
 		"image/png":  {},
 		"image/webp": {},
+		// iPhone library default; ffmpeg may need libheif on some hosts.
+		"image/heic": {},
+		"image/heif": {},
 	},
 	database.AssetTypeVideo: {
 		"video/mp4":       {},
@@ -52,4 +59,24 @@ func mimeAllowed(t database.AssetType, mime string) bool {
 	}
 	_, ok = m[mime]
 	return ok
+}
+
+func normalizeContentType(ct string) string {
+	ct = strings.ToLower(strings.TrimSpace(strings.Split(ct, ";")[0]))
+	return ct
+}
+
+// contentTypeMatches accepts Storage Content-Type when it equals the declared
+// mime, is allowlisted for the Asset type, or is a generic binary placeholder
+// (common when mobile clients fail to stamp Content-Type on signed PUTs).
+func contentTypeMatches(t database.AssetType, declared, stored string) bool {
+	stored = normalizeContentType(stored)
+	declared = normalizeContentType(declared)
+	if stored == "" || stored == "application/octet-stream" {
+		return true
+	}
+	if stored == declared {
+		return true
+	}
+	return mimeAllowed(t, stored)
 }

@@ -43,8 +43,9 @@ worker (momentos_ml/worker)
 | Var | Default | Role |
 |---|---|---|
 | `CUT_PLANNER` | `gemini` | `gemini` \| `stub` |
+| `VISION_SCORING` | `metadata` | `metadata` \| `gemini` (per-photo scores; unused by Gemini placements today) |
 | `GEMINI_API_KEY` | — | Required for gemini |
-| `GEMINI_MODEL` | `gemini-2.0-flash` | Model id |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Model id |
 | `MOMENT_SERVICE_URL` | — | Base for `/v1/internal/jobs/claim` + complete |
 | `INTERNAL_SERVICE_TOKEN` | — | Bearer for internal job routes |
 | `JOB_QUEUE_URL` | — | Unused when moment-service jobs are primary |

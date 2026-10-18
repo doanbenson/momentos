@@ -114,7 +114,8 @@ func (c *Client) StatObject(ctx context.Context, objectKey string) (*ObjectInfo,
 	defer res.Body.Close()
 	_, _ = io.Copy(io.Discard, res.Body)
 
-	if res.StatusCode == http.StatusNotFound {
+	// Supabase Storage often returns 400 (not 404) for missing object keys on HEAD.
+	if res.StatusCode == http.StatusNotFound || res.StatusCode == http.StatusBadRequest {
 		return &ObjectInfo{Exists: false}, nil
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {

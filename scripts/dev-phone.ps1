@@ -335,24 +335,63 @@ if ($SkipBackend) {
     }
   }
 
+  # Refresh PATH so a just-installed winget ffmpeg is visible.
+  $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
+    [System.Environment]::GetEnvironmentVariable("Path", "User")
+
+  $ffmpegBin = $null
+  if ($env:RENDER_FFMPEG_PATH -and (Test-Path -LiteralPath $env:RENDER_FFMPEG_PATH)) {
+    $ffmpegBin = $env:RENDER_FFMPEG_PATH
+  } else {
+    $ffmpegCmd = Get-Command ffmpeg -ErrorAction SilentlyContinue
+    if ($ffmpegCmd) { $ffmpegBin = $ffmpegCmd.Source }
+  }
+  if (-not $ffmpegBin) {
+    $wingetRoot = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+    if (Test-Path $wingetRoot) {
+      $hit = Get-ChildItem -Path $wingetRoot -Filter ffmpeg.exe -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+      if ($hit) { $ffmpegBin = $hit.FullName }
+    }
+  }
+  if (-not $ffmpegBin) {
+    throw "ffmpeg not found. Install with: winget install --id Gyan.FFmpeg -e   (or set RENDER_FFMPEG_PATH)"
+  }
+  $env:RENDER_FFMPEG_PATH = $ffmpegBin
+  Write-Host "Using ffmpeg: $ffmpegBin"
+
   # Child windows inherit this process env (DATABASE_URL, tokens, Supabase, etc).
   Start-ServiceWindow "momentos-gateway :8080" (Join-Path $Root "services\gateway") `
     "go run ./cmd/gateway"
 
+  # MEDIA_SKIP_VALIDATE=false + MEDIA_SERVICE_URL so cut-draft/render get signed storageUrl.
+  $mediaURL = if ($env:MEDIA_SERVICE_URL) { $env:MEDIA_SERVICE_URL } else { "http://127.0.0.1:8082" }
+  $mediaURLEsc = $mediaURL.Replace("'", "''")
   Start-ServiceWindow "momentos-moment-service :8081" (Join-Path $Root "services\moment-service") `
-    "`$env:MEDIA_SKIP_VALIDATE='true'; go run ./cmd/moment-service"
+    "`$env:MEDIA_SKIP_VALIDATE='false'; `$env:MEDIA_SERVICE_URL='$mediaURLEsc'; go run ./cmd/moment-service"
 
   Start-ServiceWindow "momentos-media-service :8082" (Join-Path $Root "services\media-service") `
     "go run ./cmd/media-service"
 
+  # RENDER_EDIT_AUDIO_PATH falls back to EDIT_AUDIO_PATH from root .env when unset.
+  $renderEdit = if ($env:RENDER_EDIT_AUDIO_PATH) { $env:RENDER_EDIT_AUDIO_PATH } else { $env:EDIT_AUDIO_PATH }
+  $ffmpegEsc = $ffmpegBin.Replace("'", "''")
+  $renderEnv = "`$env:MOMENT_SERVICE_URL='http://127.0.0.1:8081'; `$env:RENDER_FFMPEG_PATH='$ffmpegEsc'"
+  if ($renderEdit) {
+    $escaped = $renderEdit.Replace("'", "''")
+    $renderEnv = "$renderEnv; `$env:RENDER_EDIT_AUDIO_PATH='$escaped'"
+  }
   Start-ServiceWindow "momentos-render-service :8083" (Join-Path $Root "services\render-service") `
-    "`$env:MOMENT_SERVICE_URL='http://127.0.0.1:8081'; go run ./cmd/render-service"
+    "$renderEnv; go run ./cmd/render-service"
 
   $mlDir = Join-Path $Root "ml"
+  # VISION_SCORING=metadata by default — Gemini placements do not use per-photo vision scores.
+  if (-not $env:VISION_SCORING) { $env:VISION_SCORING = "metadata" }
+  $visionEsc = $env:VISION_SCORING.Replace("'", "''")
   $mlCmd = if (Get-Command uv -ErrorAction SilentlyContinue) {
-    "`$env:CUT_PLANNER='stub'; `$env:MOMENT_SERVICE_URL='http://127.0.0.1:8081'; uv sync; uv run python -m momentos_ml.worker"
+    "`$env:MOMENT_SERVICE_URL='http://127.0.0.1:8081'; `$env:VISION_SCORING='$visionEsc'; uv sync --extra dev; uv run python -m momentos_ml.worker"
   } else {
-    "`$env:CUT_PLANNER='stub'; `$env:MOMENT_SERVICE_URL='http://127.0.0.1:8081'; python -m momentos_ml.worker"
+    "`$env:MOMENT_SERVICE_URL='http://127.0.0.1:8081'; `$env:VISION_SCORING='$visionEsc'; python -m momentos_ml.worker"
   }
   Start-ServiceWindow "momentos-ml-worker" $mlDir $mlCmd
 
@@ -377,7 +416,8 @@ if ($needsInstall) {
   }
 }
 
-$expoCmd = "npx expo start $expoFlag --clear"
+# Metro must not use 8081 — that is moment-service (MOMENT_SERVICE_ADDR).
+$expoCmd = "npx expo start $expoFlag --port 8085 --clear"
 Start-ServiceWindow "momentos-expo $expoFlag" $mobileDir $expoCmd
 
 Write-Host ""

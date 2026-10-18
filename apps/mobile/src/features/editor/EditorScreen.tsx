@@ -103,7 +103,7 @@ export function EditorScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      mediaTypes: ["images", "videos"],
       quality: 0.9,
       allowsMultipleSelection: false,
     });
@@ -111,7 +111,6 @@ export function EditorScreen() {
     const picked = result.assets[0];
     const isVideo = picked.type === "video";
     try {
-      // TODO: blocks until Asset upload API exists on gateway
       const toAssetId = await registerLocalAsset({
         localUri: picked.uri,
         type: isVideo ? "video" : "photo",

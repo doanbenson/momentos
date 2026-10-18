@@ -56,6 +56,36 @@ type SignedAsset struct {
 	StorageURL string    `json:"storageUrl"`
 }
 
+// UnmarshalJSON accepts media-service's assetId/downloadUrl as well as id/storageUrl.
+func (a *SignedAsset) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		ID          uuid.UUID `json:"id"`
+		AssetID     uuid.UUID `json:"assetId"`
+		Type        string    `json:"type"`
+		DurationMs  *int      `json:"durationMs"`
+		Width       *int      `json:"width"`
+		Height      *int      `json:"height"`
+		StorageURL  string    `json:"storageUrl"`
+		DownloadURL string    `json:"downloadUrl"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	a.ID = raw.ID
+	if a.ID == uuid.Nil {
+		a.ID = raw.AssetID
+	}
+	a.Type = raw.Type
+	a.DurationMs = raw.DurationMs
+	a.Width = raw.Width
+	a.Height = raw.Height
+	a.StorageURL = raw.StorageURL
+	if a.StorageURL == "" {
+		a.StorageURL = raw.DownloadURL
+	}
+	return nil
+}
+
 type SignDownloadResponse struct {
 	Assets       []SignedAsset `json:"assets"`
 	EditAudioURL string        `json:"editAudioUrl,omitempty"`
@@ -78,6 +108,8 @@ func (c *Client) GetAssets(ctx context.Context, principal string, ids []uuid.UUI
 		parts[i] = id.String()
 	}
 	q.Set("ids", strings.Join(parts, ","))
+	// Default list sign=false; workers need downloadUrl for Whisper/render.
+	q.Set("sign", "true")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/assets?"+q.Encode(), nil)
 	if err != nil {
 		return nil, err
@@ -155,12 +187,32 @@ func (c *Client) GetSongPick(ctx context.Context, principal, id string) (*SongPi
 }
 
 func (c *Client) SignRenderURL(ctx context.Context, principal, storageKey string) (string, error) {
-	// Prefer song-pick style helper; media may expose signed object URLs via sign-download.
-	// Until media lands a dedicated render-sign route, return empty and let gateway omit.
-	_ = ctx
-	_ = principal
-	_ = storageKey
-	return "", nil
+	if c == nil || c.BaseURL == "" || strings.TrimSpace(storageKey) == "" {
+		return "", nil
+	}
+	payload, _ := json.Marshal(map[string]string{"storageKey": storageKey})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/v1/internal/objects/sign-download", bytes.NewReader(payload))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.auth(req, principal)
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode >= 300 {
+		return "", fmt.Errorf("media sign object: %s: %s", res.Status, truncate(body))
+	}
+	var out struct {
+		DownloadURL string `json:"downloadUrl"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", err
+	}
+	return out.DownloadURL, nil
 }
 
 func (c *Client) auth(req *http.Request, principal string) {

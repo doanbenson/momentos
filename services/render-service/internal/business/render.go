@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -94,7 +95,7 @@ func (s *Service) ProcessJob(job *database.Job) error {
 	if err := s.Runner.Render(plan, outPath); err != nil {
 		log.Printf("render-service: job=%s ffmpeg failed after %s: %v",
 			job.ID, time.Since(start).Round(time.Millisecond), err)
-		return fmt.Errorf("encode: %w", err)
+		return classifyEncodeError(err)
 	}
 	log.Printf("render-service: job=%s moment=%s cut=%s v=%d encoded in %s",
 		job.ID, job.MomentID, job.CutID, job.CutVersion, time.Since(start).Round(time.Millisecond))
@@ -166,12 +167,20 @@ func (s *Service) buildPlan(job *database.Job, scratch string) (ffmpeg.Plan, err
 			if dErr != nil {
 				return ffmpeg.Plan{}, fmt.Errorf("download asset %s: %w", a.ID, dErr)
 			}
+			assetType := ffmpeg.AssetType(a.Type)
+			if assetType == ffmpeg.AssetPhoto {
+				norm, nErr := s.normalizePhotoForEncode(local, scratch, a.ID)
+				if nErr != nil {
+					return ffmpeg.Plan{}, Terminal("asset %s: normalize photo: %v", a.ID, nErr)
+				}
+				local = norm
+			}
 			clips = append(clips, ffmpeg.ClipInput{
 				AssetID:   c.AssetID,
 				Order:     c.Order,
 				StartMs:   c.StartMs,
 				EndMs:     c.EndMs,
-				Type:      ffmpeg.AssetType(a.Type),
+				Type:      assetType,
 				LocalPath: local,
 				Role:      c.Role,
 			})
@@ -183,12 +192,20 @@ func (s *Service) buildPlan(job *database.Job, scratch string) (ffmpeg.Plan, err
 		styleProfileID = songpick.StyleProfileID
 	}
 
+	overlayPath := ""
+	if styleProfileID == songpick.StyleProfileID || styleProfileID == ffmpeg.StyleProfileLifeOnFilmV1 {
+		if path, err := systemmedia.Resolve(systemmedia.DefaultRoot(), "overlay-film-burn"); err == nil {
+			overlayPath = path
+		}
+	}
+
 	plan := ffmpeg.Plan{
 		MomentID:       job.MomentID,
 		CutID:          job.CutID,
 		CutVersion:     job.CutVersion,
 		EditAudioPath:  editPath,
 		StyleProfileID: styleProfileID,
+		OverlayPath:    overlayPath,
 		Clips:          clips,
 		Captions:       captions,
 		Markers:        markers,
@@ -201,11 +218,12 @@ func (s *Service) buildPlan(job *database.Job, scratch string) (ffmpeg.Plan, err
 
 func (s *Service) resolveEditAudio(job *database.Job, scratch string) (string, error) {
 	if job.EditAudioURL != "" {
-		dest := filepath.Join(scratch, "edit-audio")
-		if err := downloadURL(s.http(), job.EditAudioURL, dest); err != nil {
+		base := filepath.Join(scratch, "edit-audio")
+		got, err := downloadURLTyped(s.http(), job.EditAudioURL, base, "voice")
+		if err != nil {
 			return "", fmt.Errorf("download Edit Audio: %w", err)
 		}
-		return dest, nil
+		return got.Path, nil
 	}
 	if s.EditAudioPath != "" {
 		if _, err := os.Stat(s.EditAudioPath); err != nil {
@@ -230,11 +248,67 @@ func (s *Service) downloadAsset(a database.AssetRef, scratch string) (string, er
 		}
 		return path, nil
 	}
-	dest := filepath.Join(scratch, "asset-"+a.ID)
-	if err := downloadURL(s.http(), a.URL, dest); err != nil {
+	base := filepath.Join(scratch, "asset-"+a.ID)
+	got, err := downloadURLTyped(s.http(), a.URL, base, a.Type)
+	if err != nil {
 		return "", err
 	}
+	return got.Path, nil
+}
+
+// normalizePhotoForEncode converts HEIC/HEIF (and other non-JPEG stills) to JPEG
+// so -loop (image2) works reliably on FFmpeg 9 / Windows.
+func (s *Service) normalizePhotoForEncode(localPath, scratch, assetID string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(localPath))
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp":
+		return localPath, nil
+	default:
+		return s.convertStillToJPEG(localPath, scratch, assetID)
+	}
+}
+
+func (s *Service) convertStillToJPEG(src, scratch, assetID string) (string, error) {
+	bin := "ffmpeg"
+	if s.Runner != nil && s.Runner.Bin != "" {
+		bin = s.Runner.Bin
+	}
+	dest := filepath.Join(scratch, "asset-"+assetID+"-norm.jpg")
+	cmd := exec.Command(bin, "-y", "-hide_banner", "-loglevel", "error", "-i", src, "-frames:v", "1", dest)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("heic/still→jpeg: %s", truncateRun(msg, 400))
+	}
+	if fi, err := os.Stat(dest); err != nil || fi.Size() == 0 {
+		return "", fmt.Errorf("heic/still→jpeg produced empty output")
+	}
 	return dest, nil
+}
+
+func classifyEncodeError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	// Bad demuxer/options or unreadable inputs will not succeed on retry.
+	if strings.Contains(msg, "Option loop not found") ||
+		strings.Contains(msg, "Error opening input file") ||
+		strings.Contains(msg, "Error opening input files") ||
+		strings.Contains(msg, "Invalid data found when processing input") {
+		return Terminal("encode: %s", msg)
+	}
+	return fmt.Errorf("encode: %w", err)
+}
+
+func truncateRun(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 type cutClip struct {
@@ -312,24 +386,6 @@ func resolveMarkerPaths(markers []ffmpeg.Marker, byID map[string]database.AssetR
 		log.Printf("render-service: system media %s unresolved (stub ok)", id)
 	}
 	return out
-}
-
-func downloadURL(client *http.Client, rawURL, dest string) error {
-	resp, err := client.Get(rawURL)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d fetching %s", resp.StatusCode, rawURL)
-	}
-	f, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
 }
 
 func localFileRef(u string) (string, bool) {

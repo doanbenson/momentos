@@ -212,25 +212,19 @@ func (b *BFF) resolveRenderURL(ctx context.Context, principal string, lean Momen
 	if lean.RenderURL != nil && *lean.RenderURL != "" {
 		return *lean.RenderURL, nil
 	}
-	// moment-service may only store storage key; ask media for a signed URL if it exposes one.
-	// Contract pending media workstream — best-effort.
-	if b.Media.BaseURL == "" {
+	if b.Media.BaseURL == "" || lean.RenderStorageKey == nil || *lean.RenderStorageKey == "" {
 		return "", nil
 	}
-	payload := map[string]any{
-		"momentId":         lean.ID,
-		"purpose":          "render",
-		"renderStorageKey": lean.RenderStorageKey,
-	}
-	status, raw, err := b.Media.Do(ctx, http.MethodPost, "/v1/internal/assets/sign-download", principal, mustJSON(payload), nil)
+	payload := map[string]string{"storageKey": *lean.RenderStorageKey}
+	status, raw, err := b.Media.Do(ctx, http.MethodPost, "/v1/internal/objects/sign-download", principal, mustJSON(payload), nil)
 	if err != nil || status >= 300 {
 		return "", nil
 	}
 	var out struct {
-		RenderURL string `json:"renderUrl"`
+		DownloadURL string `json:"downloadUrl"`
 	}
 	_ = json.Unmarshal(raw, &out)
-	return out.RenderURL, nil
+	return out.DownloadURL, nil
 }
 
 func joinCSV(parts []string) string {

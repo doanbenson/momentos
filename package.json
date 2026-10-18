@@ -11,6 +11,11 @@
     "phone": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/dev-phone.ps1",
     "phone:tunnel": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/dev-phone.ps1 -Tunnel"
   },
+  "pnpm": {
+    "overrides": {
+      "@expo/metro-runtime": "~57.0.17"
+    }
+  },
   "devDependencies": {
     "turbo": "^2.11.9"
   }

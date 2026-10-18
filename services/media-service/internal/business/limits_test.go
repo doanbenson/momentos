@@ -14,6 +14,7 @@ func TestMimeAllowlistAndCaps(t *testing.T) {
 		max   int64
 	}{
 		{database.AssetTypePhoto, "image/jpeg", true, MaxPhotoBytes},
+		{database.AssetTypePhoto, "image/heic", true, MaxPhotoBytes},
 		{database.AssetTypePhoto, "image/gif", false, MaxPhotoBytes},
 		{database.AssetTypeVideo, "video/mp4", true, MaxVideoBytes},
 		{database.AssetTypeVideo, "video/webm", false, MaxVideoBytes},
@@ -26,6 +27,27 @@ func TestMimeAllowlistAndCaps(t *testing.T) {
 		}
 		if got := maxBytesFor(tc.typ); got != tc.max {
 			t.Fatalf("%s max=%d want %d", tc.typ, got, tc.max)
+		}
+	}
+}
+
+func TestContentTypeMatches(t *testing.T) {
+	cases := []struct {
+		name     string
+		typ      database.AssetType
+		declared string
+		stored   string
+		ok       bool
+	}{
+		{"exact", database.AssetTypeVideo, "video/quicktime", "video/quicktime", true},
+		{"octet-stream placeholder", database.AssetTypeVideo, "video/quicktime", "application/octet-stream", true},
+		{"empty stored", database.AssetTypePhoto, "image/jpeg", "", true},
+		{"allowlisted alt", database.AssetTypeVideo, "video/quicktime", "video/mp4", true},
+		{"disallowed", database.AssetTypeVideo, "video/quicktime", "video/webm", false},
+	}
+	for _, tc := range cases {
+		if got := contentTypeMatches(tc.typ, tc.declared, tc.stored); got != tc.ok {
+			t.Fatalf("%s: got %v want %v", tc.name, got, tc.ok)
 		}
 	}
 }

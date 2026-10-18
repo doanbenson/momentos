@@ -20,6 +20,7 @@ MAX_REPAIR_ATTEMPTS = 2
 @dataclass(frozen=True)
 class Settings:
     cut_planner: str  # "gemini" | "stub"
+    vision_scoring: str  # "metadata" | "gemini"
     gemini_api_key: str | None
     gemini_model: str
     moment_service_url: str | None
@@ -34,10 +35,15 @@ def load_settings() -> Settings:
     planner = os.getenv("CUT_PLANNER", "gemini").strip().lower()
     if planner not in ("gemini", "stub"):
         planner = "gemini"
+    # Default metadata: Gemini placements do not consume vision scores today.
+    vision = os.getenv("VISION_SCORING", "metadata").strip().lower()
+    if vision not in ("metadata", "gemini"):
+        vision = "metadata"
     return Settings(
         cut_planner=planner,
+        vision_scoring=vision,
         gemini_api_key=os.getenv("GEMINI_API_KEY") or None,
-        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
         moment_service_url=os.getenv("MOMENT_SERVICE_URL") or None,
         job_queue_url=os.getenv("JOB_QUEUE_URL") or None,
         internal_service_token=os.getenv("INTERNAL_SERVICE_TOKEN") or None,

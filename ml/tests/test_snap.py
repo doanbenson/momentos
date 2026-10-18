@@ -49,6 +49,22 @@ def test_snap_trims_video_to_source_duration():
     assert clips[0].end_ms == 600
 
 
+def test_snap_rejects_hero_outro_shrunk_by_short_video():
+    grid = _grid([0, 500, 1000, 1500, 2000])
+    features = [
+        AssetFeature(
+            asset_id="v1", type="video", intake_order=0, duration_ms=600
+        )
+    ]
+    placements = [
+        PlannerPlacement(
+            asset_id="v1", start_beat=0, end_beat=4, role="hero_outro"
+        )
+    ]
+    with pytest.raises(SnapError, match="hero_outro"):
+        snap_to_grid(placements, grid, features)
+
+
 def test_snap_rejects_invalid_range():
     grid = _grid([0, 500, 1000])
     with pytest.raises(SnapError):

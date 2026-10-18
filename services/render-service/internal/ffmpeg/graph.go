@@ -19,9 +19,14 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 		return "", "", "", fmt.Errorf("no picture clips")
 	}
 
+	flashMarkers := flashMarkersWithPath(plan.Markers)
 	sfxMarkers := sfxMarkersWithPath(plan.Markers)
-	// Input layout: pictures, voices, SFX system media, Edit Audio last.
-	editIdx := len(pics) + len(voices) + len(sfxMarkers)
+	// Input layout: pictures, voices, flash stills, SFX, optional overlay, Edit Audio last.
+	overlayInputs := 0
+	if plan.OverlayPath != "" {
+		overlayInputs = 1
+	}
+	editIdx := len(pics) + len(voices) + len(flashMarkers) + len(sfxMarkers) + overlayInputs
 	var b strings.Builder
 	vLabels := make([]string, 0, len(pics))
 
@@ -74,7 +79,18 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 	}
 
 	videoSrc = appendCaptionBurns(&b, videoSrc, plan.Captions)
-	videoSrc = appendFlashOverlays(&b, videoSrc, plan.Markers)
+	flashInputBase := len(pics) + len(voices)
+	videoSrc = appendFlashOverlays(&b, videoSrc, plan.Markers, flashInputBase)
+	if plan.OverlayPath != "" {
+		overlayIdx := len(pics) + len(voices) + len(flashMarkers) + len(sfxMarkers)
+		styled := videoSrc + "ov"
+		fmt.Fprintf(&b,
+			"[%d:v]scale=%d:%d,format=rgba[%sov];"+
+				"[%s][%sov]overlay=0:0:format=auto[%s];",
+			overlayIdx, CanvasWidth, CanvasHeight, videoSrc, videoSrc, videoSrc, styled,
+		)
+		videoSrc = styled
+	}
 	fmt.Fprintf(&b, "[%s]copy[vout];", videoSrc)
 
 	totalSec := msToSec(plan.PictureDurationMs())
@@ -117,7 +133,7 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 		voAndSFX = append(voAndSFX, "["+label+"]")
 	}
 	for i, m := range sfxMarkers {
-		inIdx := len(pics) + len(voices) + i
+		inIdx := len(pics) + len(voices) + len(flashMarkers) + i
 		label := fmt.Sprintf("sfx%d", i)
 		at := SnapMsToFrame(m.AtMs)
 		fmt.Fprintf(&b,
@@ -178,9 +194,10 @@ func appendCaptionBurns(b *strings.Builder, inLabel string, captions []Caption) 
 	return cur
 }
 
-func appendFlashOverlays(b *strings.Builder, inLabel string, markers []Marker) string {
+func appendFlashOverlays(b *strings.Builder, inLabel string, markers []Marker, flashInputBase int) string {
 	cur := inLabel
 	flashIdx := 0
+	fileIdx := 0
 	for _, m := range markers {
 		// chorus_drop is a sync target (±1 frame via SnapMsToFrame); flash executes the accent.
 		if m.Type != MarkerFlash {
@@ -192,16 +209,38 @@ func appendFlashOverlays(b *strings.Builder, inLabel string, markers []Marker) s
 		end := msToSec(at + frameMs)
 		next := fmt.Sprintf("vflash%d", flashIdx)
 		flashIdx++
-		// Generated white flash (system media overlay path optional; stubs OK if E not done).
-		fmt.Fprintf(b,
-			"color=c=white:s=%dx%d:d=%s[flashsrc%d];"+
-				"[%s][flashsrc%d]overlay=0:0:enable='between(t\\,%s\\,%s)'[%s];",
-			CanvasWidth, CanvasHeight, msToSec(frameMs), flashIdx-1,
-			cur, flashIdx-1, start, end, next,
-		)
+		if m.LocalPath != "" {
+			inIdx := flashInputBase + fileIdx
+			fileIdx++
+			src := fmt.Sprintf("flashsrc%d", flashIdx-1)
+			fmt.Fprintf(b,
+				"[%d:v]scale=%d:%d,format=yuva420p,fade=t=out:st=0:d=%s:alpha=1[%s];"+
+					"[%s][%s]overlay=0:0:enable='between(t\\,%s\\,%s)'[%s];",
+				inIdx, CanvasWidth, CanvasHeight, msToSec(frameMs), src,
+				cur, src, start, end, next,
+			)
+		} else {
+			// Fallback when pack file missing.
+			fmt.Fprintf(b,
+				"color=c=white:s=%dx%d:d=%s[flashsrc%d];"+
+					"[%s][flashsrc%d]overlay=0:0:enable='between(t\\,%s\\,%s)'[%s];",
+				CanvasWidth, CanvasHeight, msToSec(frameMs), flashIdx-1,
+				cur, flashIdx-1, start, end, next,
+			)
+		}
 		cur = next
 	}
 	return cur
+}
+
+func flashMarkersWithPath(markers []Marker) []Marker {
+	var out []Marker
+	for _, m := range markers {
+		if m.Type == MarkerFlash && m.LocalPath != "" {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func sfxMarkersWithPath(markers []Marker) []Marker {
@@ -243,7 +282,7 @@ func msToFrames(ms int) int {
 }
 
 // appendInputArgs writes -i (and photo loop flags) in graph order:
-// pictures, voices, SFX system media, Edit Audio.
+// pictures, voices, flash stills, SFX, optional overlay, Edit Audio.
 func appendInputArgs(args []string, plan Plan) []string {
 	for _, c := range plan.PictureClips() {
 		if c.Type == AssetPhoto {
@@ -256,8 +295,14 @@ func appendInputArgs(args []string, plan Plan) []string {
 	for _, c := range plan.VoiceClips() {
 		args = append(args, "-i", c.LocalPath)
 	}
+	for _, m := range flashMarkersWithPath(plan.Markers) {
+		args = append(args, "-loop", "1", "-t", msToSec(oneFrameMs()), "-i", m.LocalPath)
+	}
 	for _, m := range sfxMarkersWithPath(plan.Markers) {
 		args = append(args, "-i", m.LocalPath)
+	}
+	if plan.OverlayPath != "" {
+		args = append(args, "-loop", "1", "-t", msToSec(plan.PictureDurationMs()), "-i", plan.OverlayPath)
 	}
 	args = append(args, "-i", plan.EditAudioPath)
 	return args

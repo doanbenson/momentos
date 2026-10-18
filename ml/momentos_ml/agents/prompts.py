@@ -7,6 +7,7 @@ import json
 from momentos_ml.config import MVP_SONG_TITLE, PHOTO_HOLD_BEATS
 from momentos_ml.features.extract import AssetFeature
 from momentos_ml.styles import mvp
+from momentos_ml.styles.song_pick import HERO_OUTRO_SPAN_BEATS, NOMINAL_BPM
 
 
 SYSTEM_PROMPT = """You are the Momentos Cut planner.
@@ -16,15 +17,20 @@ Rules:
 - Output ONLY valid JSON matching the schema (no markdown).
 - Emit beat indices only — never milliseconds.
 - end_beat is exclusive: clip covers beats [start_beat, end_beat).
-- Prefer photo holds of about {photo_beats} beats.
+- Prefer photo holds of about {photo_beats} beats for non-finale montage clips.
+- The FINAL placement must be an exclusive {hero_beats}-beat span
+  [start_beat, start_beat+{hero_beats}) — this is the hero_outro; do not use a
+  {photo_beats}-beat hold for the last clip.
 - Video/voice spans must fit within the asset duration when duration_ms is given
-  (approximate: assume ~{ms_per_beat}ms per beat if unsure).
+  (approximate: assume ~{ms_per_beat}ms per beat at {bpm} BPM if unsure).
 - Use assets in a sensible narrative order; you may drop weak assets if time is short.
 - Voice assets are VO over the Edit Audio bed — prefer not to truncate mid-word.
 - Do not invent asset ids.
 """.format(
     photo_beats=PHOTO_HOLD_BEATS,
-    ms_per_beat=500,
+    hero_beats=HERO_OUTRO_SPAN_BEATS,
+    ms_per_beat=int(round(60_000 / NOMINAL_BPM)),
+    bpm=NOMINAL_BPM,
 )
 
 
@@ -64,5 +70,7 @@ def build_user_prompt(
 
 REPAIR_SUFFIX = (
     "\nYour previous JSON was invalid or failed snap/validation. "
-    "Return corrected placements only, same schema. Honor beatCount bounds."
+    "Return corrected placements only, same schema. Honor beatCount bounds. "
+    f"If hero_outro failed, the last placement MUST span exactly "
+    f"{HERO_OUTRO_SPAN_BEATS} beats [start, start+{HERO_OUTRO_SPAN_BEATS})."
 )

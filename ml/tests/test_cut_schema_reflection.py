@@ -30,7 +30,7 @@ def _base_clips(*, with_hero: bool = True) -> list[CutClip]:
                 assetId="33333333-3333-3333-3333-333333333333",
                 order=2,
                 startMs=3000,
-                endMs=5000,
+                endMs=4905,  # ~4 beats @ 126 BPM (1905ms)
                 role="hero_outro",
             )
         )
@@ -58,4 +58,23 @@ def test_cut_rejects_missing_hero_outro():
             moment_id="44444444-4444-4444-4444-444444444444",
             song_pick_id="live-a-life-you-will-remember",
             clips=_base_clips(with_hero=False),
+        )
+
+
+def test_cut_rejects_short_hero_outro_span():
+    clips = _base_clips(with_hero=False)
+    clips.append(
+        CutClip(
+            assetId="33333333-3333-3333-3333-333333333333",
+            order=2,
+            startMs=3000,
+            endMs=3500,  # ~1 beat — illegal for hero_outro
+            role="hero_outro",
+        )
+    )
+    with pytest.raises(ValidationError):
+        build_cut(
+            moment_id="44444444-4444-4444-4444-444444444444",
+            song_pick_id="live-a-life-you-will-remember",
+            clips=clips,
         )

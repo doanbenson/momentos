@@ -7,8 +7,14 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from momentos_ml.styles.song_pick import HERO_OUTRO_SPAN_BEATS, NOMINAL_BPM
+
 CutClipRole = Literal["reflection", "montage", "hero_outro"]
 CutMarkerType = Literal["j_cut", "chorus_drop", "flash", "sfx"]
+
+# ±½ beat tolerance at nominal BPM for snapped hero_outro duration.
+_HERO_TOLERANCE_MS = int(0.5 * (60_000 / NOMINAL_BPM))
+_HERO_EXPECTED_MS = int(round(HERO_OUTRO_SPAN_BEATS * (60_000 / NOMINAL_BPM)))
 
 
 class CutClip(BaseModel):
@@ -77,8 +83,19 @@ class Cut(BaseModel):
 
     @model_validator(mode="after")
     def _require_hero_outro(self) -> Cut:
-        if not any(c.role == "hero_outro" for c in self.clips):
+        heroes = [c for c in self.clips if c.role == "hero_outro"]
+        if not heroes:
             raise ValueError("Cut must include a clip with role hero_outro")
+        hero = heroes[-1]
+        if hero.start_ms is None or hero.end_ms is None:
+            raise ValueError("hero_outro clip must have startMs/endMs")
+        span = hero.end_ms - hero.start_ms
+        if abs(span - _HERO_EXPECTED_MS) > _HERO_TOLERANCE_MS:
+            raise ValueError(
+                f"hero_outro must be a legal {HERO_OUTRO_SPAN_BEATS}-beat span "
+                f"(~{_HERO_EXPECTED_MS}ms ±{_HERO_TOLERANCE_MS}ms at {NOMINAL_BPM} BPM); "
+                f"got {span}ms"
+            )
         return self
 
 

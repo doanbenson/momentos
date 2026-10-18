@@ -15,6 +15,7 @@ class AssetFeature(BaseModel):
     intake_order: int
     duration_ms: int | None = None
     aspect: float | None = None  # width / height when both present
+    storage_url: str | None = None  # signed download URL when job provides it
 
 
 class JobAsset(BaseModel):
@@ -32,7 +33,7 @@ class JobAsset(BaseModel):
 
 
 def extract_features(assets: list[JobAsset] | list[dict[str, Any]]) -> list[AssetFeature]:
-    """Derive AssetFeature[] from job Assets. storageUrl is ignored (no vision)."""
+    """Derive AssetFeature[] from job Assets (keeps storageUrl for align/vision)."""
     features: list[AssetFeature] = []
     for raw in assets:
         a = raw if isinstance(raw, JobAsset) else JobAsset.model_validate(raw)
@@ -49,6 +50,7 @@ def extract_features(assets: list[JobAsset] | list[dict[str, Any]]) -> list[Asse
                 intake_order=a.order,
                 duration_ms=duration,
                 aspect=aspect,
+                storage_url=a.storage_url,
             )
         )
     features.sort(key=lambda f: f.intake_order)

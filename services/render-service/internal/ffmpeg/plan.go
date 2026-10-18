@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+
+	"github.com/doanbenson/momentos/services/render-service/internal/songpick"
 )
 
 // AssetType mirrors OpenAPI AssetType for encode branching.
@@ -105,9 +107,11 @@ type Plan struct {
 	CutVersion     int
 	EditAudioPath  string
 	StyleProfileID string
-	Clips          []ClipInput
-	Captions       []Caption
-	Markers        []Marker
+	// OverlayPath optional Style Profile film-gate / burn PNG (system media).
+	OverlayPath string
+	Clips       []ClipInput
+	Captions    []Caption
+	Markers     []Marker
 }
 
 // DurationMs returns endMs - startMs.
@@ -194,9 +198,35 @@ func (p Plan) Validate() error {
 		return err
 	}
 	if p.StyleProfileID == StyleProfileLifeOnFilmV1 {
-		if !p.hasRole(RoleHeroOutro) {
-			return fmt.Errorf("Style Profile %s requires a clip with role hero_outro", StyleProfileLifeOnFilmV1)
+		if err := p.validateHeroOutroSpan(); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+func (p Plan) validateHeroOutroSpan() error {
+	var hero *ClipInput
+	for i := range p.Clips {
+		if p.Clips[i].Role == RoleHeroOutro {
+			hero = &p.Clips[i]
+		}
+	}
+	if hero == nil {
+		return fmt.Errorf("Style Profile %s requires a clip with role hero_outro", StyleProfileLifeOnFilmV1)
+	}
+	expected := songpick.HeroOutroSpanBeats * 60_000 / songpick.NominalBPM
+	tolerance := 60_000 / (2 * songpick.NominalBPM) // ±½ beat
+	span := hero.DurationMs()
+	delta := span - expected
+	if delta < 0 {
+		delta = -delta
+	}
+	if delta > tolerance {
+		return fmt.Errorf(
+			"hero_outro must be a legal %d-beat span (~%dms ±%dms at %d BPM); got %dms",
+			songpick.HeroOutroSpanBeats, expected, tolerance, songpick.NominalBPM, span,
+		)
 	}
 	return nil
 }

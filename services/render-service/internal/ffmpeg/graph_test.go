@@ -12,6 +12,35 @@ func abs(n int) int {
 	return n
 }
 
+func TestAppendInputArgs_LoopOnlyOnPhotos(t *testing.T) {
+	plan := Plan{
+		EditAudioPath: "/tmp/edit.m4a",
+		Clips: []ClipInput{
+			{AssetID: "p1", Order: 0, StartMs: 0, EndMs: 2000, Type: AssetPhoto, LocalPath: "/tmp/p1.jpg"},
+			{AssetID: "v1", Order: 1, StartMs: 0, EndMs: 2000, Type: AssetVideo, LocalPath: "/tmp/v1.mp4"},
+		},
+	}
+	args := appendInputArgs(nil, plan)
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-loop 1 -t 2.000 -i /tmp/p1.jpg") {
+		t.Fatalf("photo missing loop args: %v", args)
+	}
+	// Video must be a bare -i, never -loop before its path.
+	vidAt := -1
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "-i" && args[i+1] == "/tmp/v1.mp4" {
+			vidAt = i
+			break
+		}
+	}
+	if vidAt < 0 {
+		t.Fatalf("video -i missing: %v", args)
+	}
+	if vidAt >= 2 && args[vidAt-2] == "-loop" {
+		t.Fatalf("video must not use -loop: %v", args)
+	}
+}
+
 func TestBuildFilterComplex_PhotoAndVideoAndVO(t *testing.T) {
 	plan := Plan{
 		EditAudioPath: "/tmp/edit.m4a",
@@ -85,11 +114,11 @@ func TestBuildFilterComplex_Act2FlashAndSFXMarkers(t *testing.T) {
 		Clips: []ClipInput{
 			{AssetID: "r1", Order: 0, StartMs: 0, EndMs: 1000, Type: AssetVideo, LocalPath: "/tmp/r.mp4", Role: RoleReflection},
 			{AssetID: "m1", Order: 1, StartMs: 0, EndMs: 1000, Type: AssetPhoto, LocalPath: "/tmp/m.jpg", Role: RoleMontage},
-			{AssetID: "h1", Order: 2, StartMs: 0, EndMs: 2000, Type: AssetPhoto, LocalPath: "/tmp/h.jpg", Role: RoleHeroOutro},
+			{AssetID: "h1", Order: 2, StartMs: 0, EndMs: 1905, Type: AssetPhoto, LocalPath: "/tmp/h.jpg", Role: RoleHeroOutro},
 		},
 		Markers: []Marker{
 			{Type: MarkerChorusDrop, AtMs: 1005},
-			{Type: MarkerFlash, AtMs: 1005},
+			{Type: MarkerFlash, AtMs: 1005, SystemMediaID: "flash", LocalPath: "/tmp/flash.png"},
 			{Type: MarkerSFX, AtMs: 1005, SystemMediaID: "sfx-whoosh", LocalPath: "/tmp/whoosh.wav"},
 		},
 	}
@@ -99,7 +128,7 @@ func TestBuildFilterComplex_Act2FlashAndSFXMarkers(t *testing.T) {
 	}
 	snapped := msToSec(SnapMsToFrame(1005))
 	for _, need := range []string{
-		"color=c=white",
+		"fade=t=out", // pack flash.png path (not synthetic white)
 		"overlay=",
 		"between(t\\," + snapped + "\\,",
 		"adelay=1000|1000", // SFX snapped to frame
@@ -108,6 +137,9 @@ func TestBuildFilterComplex_Act2FlashAndSFXMarkers(t *testing.T) {
 		if !strings.Contains(filter, need) {
 			t.Fatalf("Act 2 marker graph missing %q\n%s", need, filter)
 		}
+	}
+	if strings.Contains(filter, "color=c=white") {
+		t.Fatal("flash with LocalPath must not use synthetic white color source")
 	}
 }
 

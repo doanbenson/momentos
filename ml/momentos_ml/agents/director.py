@@ -56,7 +56,7 @@ def plan_cut(
         raise ValueError("BeatGrid needs at least 2 beats for director")
 
     by_id = {f.asset_id: f for f in features}
-    reflection_id = reflection_asset_id or _infer_reflection_id(features)
+    reflection_id = reflection_asset_id or infer_reflection_id(features)
 
     montage_ids = _montage_order(
         features=features,
@@ -171,7 +171,8 @@ def plan_cut(
     )
 
 
-def _infer_reflection_id(features: list[AssetFeature]) -> str | None:
+def infer_reflection_id(features: list[AssetFeature]) -> str | None:
+    """Prefer explicit job id; fallback: first voice, else first video by intake order."""
     voices = [f for f in features if f.type == "voice"]
     if voices:
         return sorted(voices, key=lambda f: f.intake_order)[0].asset_id

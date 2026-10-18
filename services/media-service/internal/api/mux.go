@@ -36,6 +36,7 @@ func NewMux(d Deps) http.Handler {
 
 	// Internal / worker helpers (token only; ml + render + moment-service).
 	mux.HandleFunc("POST /v1/internal/assets/sign-download", h.auth.requireInternal(h.signDownload))
+	mux.HandleFunc("POST /v1/internal/objects/sign-download", h.auth.requireInternal(h.signObject))
 
 	return mux
 }

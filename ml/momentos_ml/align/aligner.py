@@ -90,6 +90,20 @@ def _align_stub(
     )
 
 
+_whisper_model = None
+
+
+def _get_whisper_model():
+    """Lazy singleton — avoid reloading weights on every cut-draft job."""
+    global _whisper_model
+    if _whisper_model is not None:
+        return _whisper_model
+    from faster_whisper import WhisperModel  # type: ignore[import-not-found]
+
+    _whisper_model = WhisperModel("base", device="cpu", compute_type="int8")
+    return _whisper_model
+
+
 def _align_faster_whisper(
     *,
     audio_path: str | None,
@@ -97,14 +111,12 @@ def _align_faster_whisper(
     reflection_question: str | None,
 ) -> AlignmentResult:
     if not audio_path:
-        logger.warning("faster_whisper requested without audio_path; falling back to stub")
-        return _align_stub(
-            reflection_asset_id="unknown",
-            reflection_question=reflection_question,
-            duration_ms=duration_ms,
+        raise ValueError(
+            "faster_whisper requested without audio_path "
+            "(Reflection Asset storageUrl missing or download failed)"
         )
     try:
-        from faster_whisper import WhisperModel  # type: ignore[import-not-found]
+        model = _get_whisper_model()
     except ImportError:
         logger.warning("faster-whisper not installed; falling back to stub aligner")
         return _align_stub(
@@ -113,7 +125,6 @@ def _align_faster_whisper(
             duration_ms=duration_ms,
         )
 
-    model = WhisperModel("base", device="cpu", compute_type="int8")
     segments, _info = model.transcribe(audio_path, word_timestamps=True)
     captions: list[CutCaption] = []
     for seg in segments:
@@ -135,11 +146,40 @@ def _align_faster_whisper(
             duration_ms=duration_ms,
         )
 
-    keep_end = captions[-1].end_ms
     if duration_ms and duration_ms > 0:
-        keep_end = min(keep_end, duration_ms)
-    # LLM keep-segments assist is optional; default keeps full aligned span.
-    return AlignmentResult(
-        captions=captions,
-        keep_segments=[KeepSegment(start_ms=0, end_ms=max(keep_end, 1))],
-    )
+        captions = [
+            c
+            if c.end_ms <= duration_ms
+            else CutCaption(text=c.text, startMs=c.start_ms, endMs=duration_ms)
+            for c in captions
+            if c.start_ms < duration_ms
+        ]
+        if not captions:
+            return _align_stub(
+                reflection_asset_id="unknown",
+                reflection_question=reflection_question,
+                duration_ms=duration_ms,
+            )
+
+    # Collapse silence gaps > 0.35s into keep_segments (PRD Act 1 trim).
+    keep = _keep_segments_from_captions(captions, gap_ms=350)
+    return AlignmentResult(captions=captions, keep_segments=keep)
+
+
+def _keep_segments_from_captions(
+    captions: list[CutCaption],
+    *,
+    gap_ms: int = 350,
+) -> list[KeepSegment]:
+    if not captions:
+        return [KeepSegment(start_ms=0, end_ms=1)]
+    segments: list[KeepSegment] = []
+    start = captions[0].start_ms
+    prev_end = captions[0].end_ms
+    for c in captions[1:]:
+        if c.start_ms - prev_end > gap_ms:
+            segments.append(KeepSegment(start_ms=start, end_ms=max(prev_end, start + 1)))
+            start = c.start_ms
+        prev_end = max(prev_end, c.end_ms)
+    segments.append(KeepSegment(start_ms=start, end_ms=max(prev_end, start + 1)))
+    return segments

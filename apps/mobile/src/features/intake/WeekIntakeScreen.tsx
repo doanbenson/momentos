@@ -93,9 +93,7 @@ export function WeekIntakeScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: forReflection
-        ? ImagePicker.MediaTypeOptions.Videos
-        : ImagePicker.MediaTypeOptions.All,
+      mediaTypes: forReflection ? ["videos"] : ["images", "videos"],
       quality: 0.9,
       allowsMultipleSelection: !forReflection,
       selectionLimit: forReflection
@@ -132,7 +130,7 @@ export function WeekIntakeScreen() {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: ["videos"],
       quality: 0.9,
     });
     if (result.canceled || !result.assets[0]) return;

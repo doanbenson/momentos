@@ -1,6 +1,9 @@
 package business
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // TerminalError is a validation / bad-input failure — do not retry.
 type TerminalError struct {
@@ -14,6 +17,6 @@ func Terminal(format string, args ...any) error {
 }
 
 func IsTerminal(err error) bool {
-	_, ok := err.(*TerminalError)
-	return ok
+	var te *TerminalError
+	return errors.As(err, &te)
 }

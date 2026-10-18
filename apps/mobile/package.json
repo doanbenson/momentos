@@ -4,10 +4,10 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "dev": "expo start",
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "dev": "npx expo start --port 8085",
+    "start": "npx expo start --port 8085",
+    "android": "npx expo start --port 8085 --android",
+    "ios": "npx expo start --port 8085 --ios",
     "lint": "echo \"lint: stub\""
   },
   "dependencies": {
@@ -16,6 +16,7 @@
     "@expo-google-fonts/syne": "^0.4.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.47.0",
+    "@expo/metro-runtime": "~57.0.17",
     "expo": "~57.0.0",
     "expo-asset": "~57.0.20",
     "expo-audio": "~57.0.5",

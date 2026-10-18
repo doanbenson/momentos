@@ -72,8 +72,9 @@ def test_draft_cut_with_stub_and_mock_audio():
 
     settings = Settings(
             cut_planner="stub",
+            vision_scoring="metadata",
             gemini_api_key=None,
-            gemini_model="gemini-2.0-flash",
+            gemini_model="gemini-3.8-flash",
             moment_service_url=None,
             job_queue_url=None,
             internal_service_token=None,

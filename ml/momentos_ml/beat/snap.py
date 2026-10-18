@@ -6,7 +6,11 @@ from pydantic import BaseModel, Field
 
 from momentos_ml.beat.grid import BeatGrid
 from momentos_ml.features.extract import AssetFeature
+from momentos_ml.styles.song_pick import HERO_OUTRO_SPAN_BEATS, NOMINAL_BPM
 from momentos_ml.validate.cut_schema import CutCaption, CutClip, CutClipRole, CutMarker
+
+_HERO_TOLERANCE_MS = int(0.5 * (60_000 / NOMINAL_BPM))
+_HERO_EXPECTED_MS = int(round(HERO_OUTRO_SPAN_BEATS * (60_000 / NOMINAL_BPM)))
 
 
 class PlannerPlacement(BaseModel):
@@ -73,6 +77,13 @@ def snap_to_grid(
         if feat and feat.type in ("video", "voice") and feat.duration_ms is not None:
             max_end = start_ms + feat.duration_ms
             if end_ms > max_end:
+                # hero_outro must stay a legal 4-beat span — do not silently shrink.
+                if p.role == "hero_outro":
+                    raise SnapError(
+                        f"asset {p.asset_id}: hero_outro needs ~{_HERO_EXPECTED_MS}ms "
+                        f"(±{_HERO_TOLERANCE_MS}ms) but source duration is only "
+                        f"{feat.duration_ms}ms; pick a longer hero Asset"
+                    )
                 end_ms = max_end
                 if end_ms <= start_ms:
                     raise SnapError(

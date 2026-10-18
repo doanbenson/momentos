@@ -1,3 +1,4 @@
+import * as FileSystem from "expo-file-system/legacy";
 import { gatewayFetch, readError } from "./api";
 import type { AssetType } from "./types";
 
@@ -22,7 +23,8 @@ export type CreateAssetResponse = {
 export async function createAsset(input: {
   type: AssetType;
   mimeType: string;
-  byteSize?: number;
+  /** Required — media-service rejects missing/zero (defaults to 0 in JSON omit). */
+  byteSize: number;
 }): Promise<CreateAssetResponse> {
   const res = await gatewayFetch("/v1/assets", {
     method: "POST",
@@ -44,18 +46,19 @@ export async function uploadAssetBytes(
   mimeType: string,
   uploadHeaders?: Record<string, string>,
 ): Promise<void> {
-  // TODO: confirm signed-URL PUT contract with media-service
-  const blob = await (await fetch(localUri)).blob();
-  const res = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: {
-      "Content-Type": mimeType,
-      ...(uploadHeaders ?? {}),
-    },
-    body: blob,
+  // RN Blob has no arrayBuffer(); Expo fetch also overwrites Content-Type from
+  // Blob.type. Native uploadAsync streams the file:// URI with our headers intact.
+  const headers: Record<string, string> = {
+    ...(uploadHeaders ?? {}),
+    "Content-Type": mimeType,
+  };
+  const result = await FileSystem.uploadAsync(uploadUrl, localUri, {
+    httpMethod: "PUT",
+    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+    headers,
   });
-  if (!res.ok) {
-    throw new Error(`Asset upload PUT failed (${res.status})`);
+  if (result.status < 200 || result.status >= 300) {
+    throw new Error(`Asset upload PUT failed (${result.status})`);
   }
 }
 
@@ -69,14 +72,31 @@ export async function completeAsset(assetId: string): Promise<void> {
   }
 }
 
+async function resolveByteSize(
+  localUri: string,
+  known?: number,
+): Promise<number> {
+  if (known != null && known > 0) return known;
+  const info = await FileSystem.getInfoAsync(localUri);
+  if (info.exists && !info.isDirectory && typeof info.size === "number" && info.size > 0) {
+    return info.size;
+  }
+  const blob = await (await fetch(localUri)).blob();
+  if (blob.size <= 0) {
+    throw new Error("Could not determine Asset byteSize from local file");
+  }
+  return blob.size;
+}
+
 /** Full local → registered Asset pipeline. */
 export async function registerLocalAsset(
   draft: LocalAssetDraft,
 ): Promise<string> {
+  const byteSize = await resolveByteSize(draft.localUri, draft.byteSize);
   const created = await createAsset({
     type: draft.type,
     mimeType: draft.mimeType,
-    byteSize: draft.byteSize,
+    byteSize,
   });
   await uploadAssetBytes(
     created.uploadUrl,

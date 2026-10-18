@@ -187,6 +187,22 @@ func (h *handlers) signDownload(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+func (h *handlers) signObject(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		StorageKey string `json:"storageKey"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "invalid json")
+		return
+	}
+	url, err := h.svc.SignObject(r.Context(), body.StorageKey)
+	if err != nil {
+		mapBizError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"downloadUrl": url})
+}
+
 func mapBizError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, business.ErrInvalidInput),

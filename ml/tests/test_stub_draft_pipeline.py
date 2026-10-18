@@ -24,8 +24,9 @@ def _grid(n_beats: int = 120) -> BeatGrid:
 def _settings() -> Settings:
     return Settings(
         cut_planner="stub",
+        vision_scoring="metadata",
         gemini_api_key=None,
-        gemini_model="gemini-2.0-flash",
+        gemini_model="gemini-3.8-flash",
         moment_service_url=None,
         job_queue_url=None,
         internal_service_token=None,

@@ -22,7 +22,10 @@ from momentos_ml.config import (
     Settings,
     load_settings,
 )
+from momentos_ml.agents.director import infer_reflection_id
 from momentos_ml.features.extract import AssetFeature, JobAsset, extract_features
+from momentos_ml.media.download import materialize_asset
+from momentos_ml.styles.song_pick import HERO_OUTRO_SPAN_BEATS
 from momentos_ml.validate.cut_schema import Cut, build_cut
 from momentos_ml.vision.score import score_montage_candidates
 
@@ -94,20 +97,50 @@ def _plan_snap_validate(
     reflection_asset_id: str | None,
     reflection_question: str | None,
 ) -> Cut:
-    reflection_id = reflection_asset_id or _infer_reflection_id(features)
+    reflection_id = reflection_asset_id or infer_reflection_id(features)
     reflection_feat = next(
         (f for f in features if f.asset_id == reflection_id), None
     )
 
     aligner_backend = "stub" if settings.cut_planner == "stub" else "faster_whisper"
-    alignment = align_reflection(
-        reflection_asset_id=reflection_id or "unknown",
-        reflection_question=reflection_question,
-        duration_ms=reflection_feat.duration_ms if reflection_feat else None,
-        backend=aligner_backend,  # type: ignore[arg-type]
-    )
+    audio_path: str | None = None
+    reflection_local = None
+    if aligner_backend == "faster_whisper":
+        if reflection_feat is None:
+            raise ValueError(
+                "faster_whisper requires a Reflection Asset in the job features; "
+                f"reflection_asset_id={reflection_id!r}"
+            )
+        storage_url = (reflection_feat.storage_url or "").strip()
+        reflection_local = materialize_asset(
+            storage_url=storage_url or None,
+            asset_type=reflection_feat.type,
+        )
+        if reflection_local is not None:
+            audio_path = str(reflection_local)
+        else:
+            raise ValueError(
+                "faster_whisper requires Reflection Asset download; "
+                f"storageUrl_empty={not storage_url} reflection_id={reflection_id!r}. "
+                "Ensure MEDIA_SKIP_VALIDATE=false and media sign-download returns downloadUrl."
+            )
+
+    try:
+        alignment = align_reflection(
+            reflection_asset_id=reflection_id or "unknown",
+            reflection_question=reflection_question,
+            duration_ms=reflection_feat.duration_ms if reflection_feat else None,
+            audio_path=audio_path,
+            backend=aligner_backend,  # type: ignore[arg-type]
+        )
+    finally:
+        if reflection_local is not None:
+            reflection_local.unlink(missing_ok=True)
+
     scores = score_montage_candidates(
-        features, reflection_asset_id=reflection_id
+        features,
+        reflection_asset_id=reflection_id,
+        settings=settings,
     )
 
     last_err: Exception | None = None
@@ -181,9 +214,11 @@ def _run_director(
         prior_hint=prior_hint,
         repair_note=repair_note,
     )
-    # Infer roles for Gemini placements.
+    # Infer roles + force legal 4-beat hero_outro (Gemini often emits 2-beat finale).
     enriched = _enrich_gemini_placements(
-        placements, reflection_asset_id=reflection_asset_id
+        placements,
+        reflection_asset_id=reflection_asset_id,
+        beat_count=len(grid.beat_ms),
     )
     stub = director_plan_cut(
         features,
@@ -204,34 +239,38 @@ def _enrich_gemini_placements(
     placements: list[PlannerPlacement],
     *,
     reflection_asset_id: str | None,
+    beat_count: int,
 ) -> list[PlannerPlacement]:
     if not placements:
         return placements
     out: list[PlannerPlacement] = []
+    last = len(placements) - 1
     for i, p in enumerate(placements):
         role = p.role
+        start_beat = p.start_beat
+        end_beat = p.end_beat
         if reflection_asset_id and p.asset_id == reflection_asset_id and i == 0:
             role = "reflection"
-        elif i == len(placements) - 1:
+        elif i == last:
             role = "hero_outro"
+            # Deterministic 4-beat exclusive span (mirrors stub director).
+            max_start = max(0, beat_count - HERO_OUTRO_SPAN_BEATS)
+            if start_beat > max_start:
+                start_beat = max_start
+            end_beat = min(start_beat + HERO_OUTRO_SPAN_BEATS, beat_count)
+            if end_beat <= start_beat:
+                end_beat = min(start_beat + HERO_OUTRO_SPAN_BEATS, beat_count)
         else:
             role = "montage"
         out.append(
             PlannerPlacement(
                 asset_id=p.asset_id,
-                start_beat=p.start_beat,
-                end_beat=p.end_beat,
+                start_beat=start_beat,
+                end_beat=end_beat,
                 role=role,
             )
         )
     return out
-
-
-def _infer_reflection_id(features: list[AssetFeature]) -> str | None:
-    voices = [f for f in features if f.type == "voice"]
-    if voices:
-        return sorted(voices, key=lambda f: f.intake_order)[0].asset_id
-    return None
 
 
 def draft_cut_legacy(assets: list[dict[str, Any]], song_pick_id: str) -> dict[str, Any]:

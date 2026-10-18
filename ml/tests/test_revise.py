@@ -17,7 +17,7 @@ def test_remove_and_reorder():
         "clips": [
             {"assetId": "a", "order": 0, "startMs": 0, "endMs": 500, "role": "montage"},
             {"assetId": "b", "order": 1, "startMs": 500, "endMs": 1000, "role": "montage"},
-            {"assetId": "c", "order": 2, "startMs": 1000, "endMs": 1500, "role": "hero_outro"},
+            {"assetId": "c", "order": 2, "startMs": 1000, "endMs": 2905, "role": "hero_outro"},
         ],
     }
     patch = EditorPatch.model_validate(

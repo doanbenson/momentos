@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"syscall"
@@ -15,6 +16,7 @@ import (
 	"github.com/doanbenson/momentos/services/render-service/internal/business"
 	"github.com/doanbenson/momentos/services/render-service/internal/database"
 	"github.com/doanbenson/momentos/services/render-service/internal/ffmpeg"
+	"github.com/doanbenson/momentos/services/render-service/internal/storage"
 )
 
 func main() {
@@ -25,11 +27,33 @@ func main() {
 
 	store := database.NewStore()
 	runner := &ffmpeg.Runner{Bin: ffmpegBin}
+	if !runner.Available() {
+		// Prefer absolute RENDER_FFMPEG_PATH; bare "ffmpeg" must be on PATH.
+		if path, err := exec.LookPath(ffmpegBin); err == nil {
+			runner.Bin = path
+		}
+	}
+	if !runner.Available() {
+		fmt.Fprintf(os.Stderr,
+			"render-service: ffmpeg not executable (%q). Install ffmpeg or set RENDER_FFMPEG_PATH.\n",
+			ffmpegBin,
+		)
+		os.Exit(1)
+	}
+
 	svc := &business.Service{
 		Store:         store,
 		Runner:        runner,
 		EditAudioPath: editAudio,
-		// StorageUpload / NotifyMoment: wire when Supabase + moment-service HTTP exist.
+	}
+
+	if sc := storage.NewFromEnv(); sc != nil {
+		svc.StorageUpload = func(localPath, objectKey string) (string, error) {
+			return sc.UploadFile(context.Background(), localPath, objectKey)
+		}
+		log.Printf("render-service: Supabase StorageUpload enabled (bucket from MEDIA_STORAGE_BUCKET or momentos-media)")
+	} else {
+		log.Printf("render-service: StorageUpload unset (need SUPABASE_URL + SUPABASE_SECRET_KEY); local file:// only")
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

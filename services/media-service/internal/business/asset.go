@@ -180,29 +180,23 @@ func (s *Service) CompleteAsset(ctx context.Context, in CompleteAssetInput) (*da
 		_ = s.store.MarkAssetFailed(ctx, asset.ID)
 		return nil, fmt.Errorf("%w: actual size %d", ErrSizeExceeded, actualSize)
 	}
-	if info.ContentType != "" {
-		ct := strings.ToLower(strings.Split(info.ContentType, ";")[0])
-		ct = strings.TrimSpace(ct)
-		if ct != "" && ct != asset.MimeType && !mimeAllowed(asset.Type, ct) {
-			_ = s.store.MarkAssetFailed(ctx, asset.ID)
-			return nil, fmt.Errorf("%w: got %s want %s", ErrMimeMismatch, ct, asset.MimeType)
-		}
+	if !contentTypeMatches(asset.Type, asset.MimeType, info.ContentType) {
+		_ = s.store.MarkAssetFailed(ctx, asset.ID)
+		return nil, fmt.Errorf("%w: got %s want %s", ErrMimeMismatch, info.ContentType, asset.MimeType)
 	}
 
 	clearThumb := false
 	if asset.ThumbnailKey != nil {
-		uploaded := in.ThumbnailUploaded == nil || *in.ThumbnailUploaded
-		if uploaded {
+		// Default false: mobile MVP never uploads posters; only verify when client claims it.
+		uploaded := in.ThumbnailUploaded != nil && *in.ThumbnailUploaded
+		if !uploaded {
+			clearThumb = true
+		} else {
 			ti, err := s.storage.StatObject(ctx, *asset.ThumbnailKey)
-			if err != nil {
-				return nil, fmt.Errorf("verify thumbnail: %w", err)
-			}
-			if !ti.Exists {
-				// Client/transform may skip poster — soft-clear key (no ffmpeg).
+			if err != nil || !ti.Exists {
+				// Missing/failed poster check — soft-clear key (no ffmpeg on media-service).
 				clearThumb = true
 			}
-		} else {
-			clearThumb = true
 		}
 	}
 
@@ -301,6 +295,15 @@ type SignDownloadResult struct {
 	SongPickID       string        `json:"songPickId,omitempty"`
 }
 
+// SignObject signs an arbitrary Storage key (e.g. Moment Render) for internal workers / BFF.
+func (s *Service) SignObject(ctx context.Context, storageKey string) (string, error) {
+	key := strings.TrimSpace(storageKey)
+	if key == "" {
+		return "", fmt.Errorf("%w: storageKey required", ErrInvalidInput)
+	}
+	return s.storage.SignDownload(ctx, key, InternalTTL)
+}
+
 // SignDownload is the internal helper for ml / render (no owner gate).
 func (s *Service) SignDownload(ctx context.Context, in SignDownloadInput) (*SignDownloadResult, error) {
 	assets, err := s.store.ListAssetsByIDsAny(ctx, in.AssetIDs)
@@ -353,14 +356,15 @@ func (s *Service) SignDownload(ctx context.Context, in SignDownloadInput) (*Sign
 			}
 			return nil, err
 		}
-		url, err := s.storage.SignDownload(ctx, sp.EditAudioStorageKey, InternalTTL)
-		if err != nil {
-			return nil, err
-		}
 		out.SongPickID = sp.ID
-		out.EditAudioURL = url
 		out.EditAudioMime = sp.EditAudioMime
 		out.EditAudioKey = sp.EditAudioStorageKey
+		// Seed row may exist before the Storage object is uploaded — still return
+		// signed Asset URLs so cut-draft/Whisper can proceed; ML/render fall back
+		// to EDIT_AUDIO_PATH / RENDER_EDIT_AUDIO_PATH when editAudioUrl is empty.
+		if url, err := s.storage.SignDownload(ctx, sp.EditAudioStorageKey, InternalTTL); err == nil {
+			out.EditAudioURL = url
+		}
 	}
 	return out, nil
 }
