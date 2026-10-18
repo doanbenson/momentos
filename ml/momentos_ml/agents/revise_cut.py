@@ -93,6 +93,8 @@ def revise_cut(
     edit_audio_url: str | None = None,
     edit_audio_path: str | None = None,
     settings: Settings | None = None,
+    reflection_asset_id: str | None = None,
+    reflection_question: str | None = None,
 ) -> Cut:
     """Same BeatGrid path as draft; placements constrained by Editor order."""
     settings = settings or load_settings()
@@ -113,4 +115,6 @@ def revise_cut(
         version=next_version,
         prior_hint=hint,
         asset_order=order,
+        reflection_asset_id=reflection_asset_id,
+        reflection_question=reflection_question,
     )

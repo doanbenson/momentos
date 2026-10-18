@@ -1,4 +1,4 @@
-"""Metadata-only Asset → AssetFeature (GRILL Q1: no vision)."""
+"""Metadata-only Asset → AssetFeature (vision scoring is a separate stage)."""
 
 from __future__ import annotations
 

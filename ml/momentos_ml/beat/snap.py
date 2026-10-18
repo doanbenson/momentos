@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from momentos_ml.beat.grid import BeatGrid
 from momentos_ml.features.extract import AssetFeature
-from momentos_ml.validate.cut_schema import CutClip
+from momentos_ml.validate.cut_schema import CutCaption, CutClip, CutClipRole, CutMarker
 
 
 class PlannerPlacement(BaseModel):
@@ -15,6 +15,7 @@ class PlannerPlacement(BaseModel):
     asset_id: str
     start_beat: int = Field(ge=0)
     end_beat: int = Field(ge=1)
+    role: CutClipRole = "montage"
 
 
 class SnapError(ValueError):
@@ -33,6 +34,8 @@ def snap_to_grid(
     - start_beat / end_beat index into BeatGrid.beat_ms; end exclusive.
     - Durations must be > 0; timeline must be non-decreasing by order.
     - Video/voice windows trimmed to ≤ source duration_ms when known.
+    - role is carried from the planner (director); snap does not invent roles
+      except a last-clip hero_outro safety net for older planners.
     """
     if not grid.beat_ms:
         raise SnapError("BeatGrid has no beats")
@@ -51,13 +54,10 @@ def snap_to_grid(
                 f"asset {p.asset_id}: start_beat {p.start_beat} past grid ({n} beats)"
             )
 
-        # Clamp end to last available beat index + allow last beat as open end
-        # by using grid duration extrapolation when end_beat == n.
         start_ms = grid.beat_ms[p.start_beat]
         if p.end_beat < n:
             end_ms = grid.beat_ms[p.end_beat]
         elif p.end_beat == n:
-            # Exclusive past last beat: extend by median beat interval.
             end_ms = _extend_past_last(grid)
         else:
             raise SnapError(
@@ -73,7 +73,6 @@ def snap_to_grid(
         if feat and feat.type in ("video", "voice") and feat.duration_ms is not None:
             max_end = start_ms + feat.duration_ms
             if end_ms > max_end:
-                # Shrink beat window to fit source; if still invalid, fail.
                 end_ms = max_end
                 if end_ms <= start_ms:
                     raise SnapError(
@@ -81,21 +80,16 @@ def snap_to_grid(
                         "too short for any positive window"
                     )
 
-        role = "montage"
-        if feat and feat.type == "voice" and order == 0:
-            # Stub path: first voice Asset is Reflection until Track C director assigns roles.
-            role = "reflection"
         clips.append(
             CutClip(
                 assetId=p.asset_id,
                 order=order,
                 startMs=start_ms,
                 endMs=end_ms,
-                role=role,
+                role=p.role,
             )
         )
 
-    # Monotonic timeline: each clip starts at/after previous start
     prev_start = -1
     for c in clips:
         assert c.start_ms is not None
@@ -105,7 +99,7 @@ def snap_to_grid(
             )
         prev_start = c.start_ms
 
-    # Contract: every Cut for this slice needs a hero_outro (stub path until Track C director).
+    # Safety net for older planners that omit hero_outro.
     if clips and not any(c.role == "hero_outro" for c in clips):
         last = clips[-1]
         clips[-1] = CutClip(
@@ -117,6 +111,53 @@ def snap_to_grid(
         )
 
     return clips
+
+
+def snap_markers(
+    markers: list,
+    grid: BeatGrid,
+) -> list[CutMarker]:
+    """Map planner markers (at_beat) → CutMarker atMs."""
+    if not grid.beat_ms:
+        raise SnapError("BeatGrid has no beats")
+    n = len(grid.beat_ms)
+    out: list[CutMarker] = []
+    for m in markers:
+        at_beat = int(m.at_beat)
+        if at_beat < 0 or at_beat >= n:
+            raise SnapError(f"marker {m.type}: at_beat {at_beat} out of grid ({n})")
+        payload = getattr(m, "payload", None)
+        out.append(
+            CutMarker(
+                type=m.type,
+                atMs=grid.beat_ms[at_beat],
+                payload=payload,
+            )
+        )
+    return out
+
+
+def offset_captions(
+    captions: list[CutCaption] | list[dict],
+    reflection_start_ms: int,
+) -> list[CutCaption]:
+    """Shift Asset-local caption cues onto the Cut timeline."""
+    out: list[CutCaption] = []
+    for c in captions:
+        if isinstance(c, CutCaption):
+            text, start, end = c.text, c.start_ms, c.end_ms
+        else:
+            text = str(c["text"])
+            start = int(c.get("startMs", c.get("start_ms", 0)))
+            end = int(c.get("endMs", c.get("end_ms", 0)))
+        out.append(
+            CutCaption(
+                text=text,
+                startMs=start + reflection_start_ms,
+                endMs=end + reflection_start_ms,
+            )
+        )
+    return out
 
 
 def _extend_past_last(grid: BeatGrid) -> int:

@@ -1,4 +1,4 @@
-"""Asset metadata feature extraction (no vision)."""
+"""Asset metadata feature extraction."""
 
 from momentos_ml.features.extract import AssetFeature, extract_features
 

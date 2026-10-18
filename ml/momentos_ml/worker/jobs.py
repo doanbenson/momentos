@@ -33,6 +33,8 @@ class CutDraftJob(BaseModel):
     edit_audio_url: str | None = Field(default=None, alias="editAudioUrl")
     mode: JobMode = "draft"
     assets: list[JobAsset] = Field(default_factory=list)
+    reflection_asset_id: str | None = Field(default=None, alias="reflectionAssetId")
+    reflection_question: str | None = Field(default=None, alias="reflectionQuestion")
     prior_cut: dict[str, Any] | None = Field(default=None, alias="priorCut")
     editor_patch: EditorPatch | None = Field(default=None, alias="editorPatch")
 
@@ -81,6 +83,8 @@ def process_job(job: CutDraftJob, settings: Settings) -> Cut:
             editor_patch=job.editor_patch,
             edit_audio_url=job.edit_audio_url,
             settings=settings,
+            reflection_asset_id=job.reflection_asset_id,
+            reflection_question=job.reflection_question,
         )
     return draft_cut(
         assets,
@@ -88,6 +92,8 @@ def process_job(job: CutDraftJob, settings: Settings) -> Cut:
         moment_id=job.moment_id,
         edit_audio_url=job.edit_audio_url,
         settings=settings,
+        reflection_asset_id=job.reflection_asset_id,
+        reflection_question=job.reflection_question,
     )
 
 

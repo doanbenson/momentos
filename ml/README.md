@@ -2,11 +2,13 @@
 
 Python worker that **drafts and revises Cuts**. Does not run ffmpeg.
 
+Pipeline: align (faster-whisper / stub) → vision score → director → snap → validate.
 Agents emit **beat indices**; `snap_to_grid` owns milliseconds (ADR 0002).
 
 ```bash
 cd ml
 uv sync --extra dev
+# optional: uv sync --extra align   # faster-whisper for live Reflection align
 uv run pytest
 uv run python -m momentos_ml.worker
 ```
@@ -15,8 +17,8 @@ uv run python -m momentos_ml.worker
 
 | `CUT_PLANNER` | Behavior |
 |---|---|
-| `gemini` (default) | Single-shot Gemini structured JSON → placements |
-| `stub` | Pack Assets on successive beat holds (CI / no API key) |
+| `gemini` (default) | Gemini placements + aligner captions/markers |
+| `stub` | Full Life On Film stub director (roles/captions/markers/hero_outro; CI) |
 
 ## One-shot without broker
 

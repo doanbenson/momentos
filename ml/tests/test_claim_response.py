@@ -43,3 +43,22 @@ def test_parse_claim_string_payload():
     )
     assert job.moment_id == "m-2"
     assert job.mode == "draft"
+
+
+def test_parse_claim_carries_reflection_fields():
+    job = parse_claim_response(
+        {
+            "id": "job-3",
+            "momentId": "m-3",
+            "jobType": "cut-draft",
+            "payload": {
+                "momentId": "m-3",
+                "mode": "draft",
+                "reflectionAssetId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "reflectionQuestion": "What made this week yours?",
+                "assets": [],
+            },
+        }
+    )
+    assert job.reflection_asset_id == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert job.reflection_question == "What made this week yours?"

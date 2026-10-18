@@ -10,8 +10,11 @@
 ```
 worker (momentos_ml/worker)
   → features (metadata AssetFeature)
-  → beat (BeatGrid via librosa + snap_to_grid)
-  → agents (stub | gemini planner → beat indices)
+  → align (faster-whisper default; stub in CI)
+  → vision (score montage candidates; stub in CI)
+  → beat (BeatGrid via librosa)
+  → director / agents (stub | gemini → beat indices + roles/markers)
+  → snap (indices → ms; captions offset; markers → atMs)
   → validate (OpenAPI Cut)
   → POST complete/fail → moment-service
 ```
@@ -20,8 +23,10 @@ worker (momentos_ml/worker)
 |---|---|---|
 | Worker | `momentos_ml/worker` | Claim / process / complete cut-draft |
 | Features | `momentos_ml/features` | Metadata-only AssetFeature extraction |
+| Align | `momentos_ml/align` | Reflection word cues + keep-segments |
+| Vision | `momentos_ml/vision` | Montage candidate scores before director |
 | Beat | `momentos_ml/beat` | Edit Audio → BeatGrid; placements → ms |
-| Agents | `momentos_ml/agents` | Draft / revise Cut (stub or Gemini) |
+| Agents | `momentos_ml/agents` | Director + draft / revise Cut (stub or Gemini) |
 | Validate | `momentos_ml/validate` | Pydantic Cut aligned with OpenAPI |
 | Styles | `momentos_ml/styles` | MVP Style Profile + Vibe + Song Pick span constants + system media catalog |
 | Config | `momentos_ml/config.py` | Env + MVP Song Pick id |

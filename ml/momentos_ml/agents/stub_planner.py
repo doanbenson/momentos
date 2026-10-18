@@ -1,4 +1,8 @@
-"""CUT_PLANNER=stub — pack Assets onto successive beat spans; always schema-valid."""
+"""Legacy stub placements helper.
+
+Prefer `momentos_ml.agents.director.plan_cut` for the full Life On Film path
+(roles / markers / captions). Kept for unit tests that assert packing only.
+"""
 
 from __future__ import annotations
 
@@ -39,7 +43,12 @@ def plan_placements(
             continue  # drop — not enough grid left
         start, end = span
         placements.append(
-            PlannerPlacement(asset_id=feat.asset_id, start_beat=start, end_beat=end)
+            PlannerPlacement(
+                asset_id=feat.asset_id,
+                start_beat=start,
+                end_beat=end,
+                role="montage",
+            )
         )
         cursor = end
         if cursor >= n:
@@ -52,7 +61,12 @@ def plan_placements(
         if end <= 0:
             end = 1
         placements.append(
-            PlannerPlacement(asset_id=feat.asset_id, start_beat=0, end_beat=end)
+            PlannerPlacement(
+                asset_id=feat.asset_id,
+                start_beat=0,
+                end_beat=end,
+                role="montage",
+            )
         )
 
     return placements
