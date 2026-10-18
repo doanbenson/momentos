@@ -1,6 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import { Audio } from "expo-av";
+import {
+  AudioModule,
+  RecordingPresets,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from "expo-audio";
 import { BrassButton } from "@/components/BrassButton";
 import { GhostButton } from "@/components/GhostButton";
 import { colors, radius, space } from "@/theme/tokens";
@@ -13,8 +19,8 @@ type Props = {
 };
 
 export function VoiceRecorderSheet({ visible, onClose, onSaved }: Props) {
-  const recordingRef = useRef<Audio.Recording | null>(null);
-  const [recording, setRecording] = useState(false);
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(audioRecorder);
   const [uri, setUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -26,35 +32,30 @@ export function VoiceRecorderSheet({ visible, onClose, onSaved }: Props) {
 
   async function teardown() {
     try {
-      if (recordingRef.current) {
-        await recordingRef.current.stopAndUnloadAsync();
+      if (recorderState.isRecording) {
+        await audioRecorder.stop();
       }
     } catch {
       /* ignore */
     }
-    recordingRef.current = null;
-    setRecording(false);
     setUri(null);
   }
 
   async function start() {
     try {
       setBusy(true);
-      const perm = await Audio.requestPermissionsAsync();
+      const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
         Alert.alert("Microphone", "Permission is required to record voice.");
         return;
       }
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
-      const rec = new Audio.Recording();
-      await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      await rec.startAsync();
-      recordingRef.current = rec;
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
       setUri(null);
-      setRecording(true);
     } catch (e) {
       Alert.alert("Record failed", e instanceof Error ? e.message : String(e));
     } finally {
@@ -65,13 +66,8 @@ export function VoiceRecorderSheet({ visible, onClose, onSaved }: Props) {
   async function stop() {
     try {
       setBusy(true);
-      const rec = recordingRef.current;
-      if (!rec) return;
-      await rec.stopAndUnloadAsync();
-      const fileUri = rec.getURI();
-      recordingRef.current = null;
-      setRecording(false);
-      setUri(fileUri);
+      await audioRecorder.stop();
+      setUri(audioRecorder.uri);
     } catch (e) {
       Alert.alert("Stop failed", e instanceof Error ? e.message : String(e));
     } finally {
@@ -84,6 +80,8 @@ export function VoiceRecorderSheet({ visible, onClose, onSaved }: Props) {
     onSaved(uri, "audio/m4a");
     onClose();
   }
+
+  const recording = recorderState.isRecording;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

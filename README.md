@@ -21,6 +21,8 @@ Read [`CLAUDE.md`](./CLAUDE.md) → [`claude/context.md`](./claude/context.md) �
 ```bash
 cp .env.example .env
 pnpm install
+# Local Postgres (matches DATABASE_URL in .env.example)
+docker compose up -d postgres
 # Go services (separate terminals): see scripts/dev.sh
 # ML: cd ml && uv sync && uv run python -m momentos_ml.worker
 pnpm mobile
@@ -28,7 +30,9 @@ pnpm mobile
 
 ## Test on your phone (Expo Go)
 
-Starts gateway / moment / media / render / ML worker, points the app at your LAN IP, then opens Expo:
+Fresh restart: stops any prior phone-stack processes, starts Postgres + gateway / moment / media / render / ML worker, points the app at your LAN IP, then opens Expo.
+
+Requires **Docker Desktop** running (for Postgres on `localhost:5432`). Postgres data is kept across restarts.
 
 ```powershell
 # Same Wi-Fi as your phone
@@ -38,7 +42,9 @@ pnpm phone
 pnpm phone:tunnel
 ```
 
-Fill `apps/mobile/.env` with Supabase URL + anon key (anonymous sign-in enabled). Scan the QR code in Expo Go.
+Fill `apps/mobile/.env` with Supabase URL + publishable key. In the Supabase Dashboard enable **Authentication → Providers → Anonymous** (OAuth is out of scope). Scan the QR code in Expo Go.
+
+Expo Go SDK must match `apps/mobile` (`expo` ~57). If the store build lags, install a matching build from [expo.dev/go](https://expo.dev/go).
 
 Stitch MCP: copy `mcp.json.example` → `.cursor/mcp.json` and add your key (`.cursor/` is gitignored).
 

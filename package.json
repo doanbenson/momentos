@@ -12,6 +12,6 @@
     "phone:tunnel": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/dev-phone.ps1 -Tunnel"
   },
   "devDependencies": {
-    "turbo": "^2.3.3"
+    "turbo": "^2.11.9"
   }
 }

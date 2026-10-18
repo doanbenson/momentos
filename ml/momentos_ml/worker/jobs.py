@@ -42,21 +42,29 @@ def parse_job(payload: dict[str, Any]) -> CutDraftJob:
 
 
 def parse_claim_response(data: dict[str, Any]) -> CutDraftJob:
-    """Unwrap moment-service claim envelope: { id, payload, ... }."""
+    """Unwrap moment-service claim envelope: { id, momentId, payload, ... }."""
+    import json
+
     inner = data.get("payload")
     if isinstance(inner, str):
-        import json
-
-        inner = json.loads(inner)
+        inner = json.loads(inner) if inner.strip() else {}
     if not isinstance(inner, dict):
-        inner = data
+        inner = {}
+
     merged = dict(inner)
+    if "moment_id" in merged and "momentId" not in merged:
+        merged["momentId"] = str(merged["moment_id"])
+
+    envelope_moment = data.get("momentId") or data.get("moment_id")
+    if envelope_moment and not merged.get("momentId"):
+        merged["momentId"] = str(envelope_moment)
     if data.get("id") and not merged.get("jobId"):
         merged["jobId"] = str(data["id"])
-    if data.get("momentId") and not merged.get("momentId"):
-        merged["momentId"] = str(data["momentId"])
     if data.get("jobType") and not merged.get("jobType"):
         merged["jobType"] = data["jobType"]
+    if data.get("job_type") and not merged.get("jobType"):
+        merged["jobType"] = data["job_type"]
+
     return parse_job(merged)
 
 
@@ -116,8 +124,12 @@ def claim_job(settings: Settings) -> CutDraftJob | None:
             if not data:
                 return None
             return parse_claim_response(data)
-    except httpx.HTTPError as e:
+    except (httpx.HTTPError, ValueError, TypeError) as e:
         logger.warning("claim_job failed: %s", e)
+        return None
+    except Exception as e:
+        # Bad broker payloads must not kill the poll loop.
+        logger.warning("claim_job parse failed: %s", e)
         return None
 
 

@@ -108,6 +108,10 @@ func (b *MomentBroker) PollClaim(ctx context.Context, store *database.Store) err
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return err
 	}
+	if len(bytes.TrimSpace(env.Payload)) == 0 || string(env.Payload) == "null" {
+		log.Printf("render-service: broker claim job=%s has empty payload; skipping", env.ID)
+		return nil
+	}
 	var payload renderPayload
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		return fmt.Errorf("payload: %w", err)

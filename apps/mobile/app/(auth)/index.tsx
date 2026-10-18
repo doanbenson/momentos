@@ -1,16 +1,22 @@
 import { useState } from "react";
-import { Alert, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, StyleSheet, Text, View } from "react-native";
 import { Redirect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BrandMark } from "@/components/BrandMark";
 import { BrassButton } from "@/components/BrassButton";
+import { GhostButton } from "@/components/GhostButton";
 import { useAuth } from "@/lib/auth";
+import { supabaseProjectRef } from "@/lib/supabase";
 import { colors, space } from "@/theme/tokens";
 import { typography } from "@/theme/typography";
 
-/** Minimal auth gate (not in Stitch set) — anonymous OK per GRILL Q2. */
+const providersUrl = supabaseProjectRef
+  ? `https://supabase.com/dashboard/project/${supabaseProjectRef}/auth/providers`
+  : "https://supabase.com/dashboard";
+
+/** MVP auth gate — anonymous only (OAuth out of scope). */
 export default function AuthScreen() {
-  const { session, loading, configured, signInAnonymously } = useAuth();
+  const { session, loading, configured, error, signInAnonymously } = useAuth();
   const [busy, setBusy] = useState(false);
 
   if (!loading && session) {
@@ -35,23 +41,29 @@ export default function AuthScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.content}>
         <BrandMark variant="hero" />
-        <Text style={styles.title}>Sign in to continue</Text>
+        <Text style={styles.title}>Continue to Momentos</Text>
         <Text style={styles.body}>
-          Week Intake and gateway calls need a session. Anonymous sign-in is fine
-          for this MVP.
+          MVP uses anonymous Supabase sessions only. No email or OAuth.
         </Text>
         {!configured ? (
           <Text style={styles.warn}>
-            Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY before
-            signing in.
+            Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY before
+            continuing.
           </Text>
         ) : null}
+        {error ? <Text style={styles.warn}>{error}</Text> : null}
         <BrassButton
           label="Continue anonymously"
           onPress={() => void continueAnon()}
           loading={busy || loading}
           disabled={!configured}
         />
+        {error?.includes("Anonymous sign-ins are disabled") ? (
+          <GhostButton
+            label="Open Supabase providers"
+            onPress={() => void Linking.openURL(providersUrl)}
+          />
+        ) : null}
       </View>
     </SafeAreaView>
   );

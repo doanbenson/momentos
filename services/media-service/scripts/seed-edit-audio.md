@@ -11,7 +11,7 @@ Canonical object (migration seed row):
 
 1. Create a **private** bucket `momentos-media` in Supabase Storage (no public policies).
 2. Run media-service once with `MEDIA_AUTO_MIGRATE=true` so `song_picks` row exists.
-3. Have `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` available.
+3. Have `SUPABASE_URL` + `SUPABASE_SECRET_KEY` available.
 
 ## Upload (curl)
 
@@ -23,8 +23,8 @@ KEY=system/song-picks/live-a-life-you-will-remember/edit-audio
 
 curl -X POST \
   "${SUPABASE_URL}/storage/v1/object/${BUCKET}/${KEY}" \
-  -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-  -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+  -H "Authorization: Bearer ${SUPABASE_SECRET_KEY}" \
+  -H "apikey: ${SUPABASE_SECRET_KEY}" \
   -H "Content-Type: audio/mp4" \
   -H "x-upsert: true" \
   --data-binary @"${FILE}"

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { Video, ResizeMode } from "expo-av";
+import { useEventListener } from "expo";
+import { useVideoPlayer, VideoView } from "expo-video";
 import { colors, radius, space } from "@/theme/tokens";
 import { fonts, typography } from "@/theme/typography";
 
@@ -19,24 +20,28 @@ export function MomentPreviewPlayer({ renderUrl }: Props) {
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
 
+  const player = useVideoPlayer(renderUrl ?? null, (p) => {
+    p.timeUpdateEventInterval = 0.25;
+  });
+
   useEffect(() => {
     setPosition(0);
     setDuration(0);
   }, [renderUrl]);
 
+  useEventListener(player, "timeUpdate", ({ currentTime }) => {
+    setPosition(Math.round(currentTime * 1000));
+    setDuration(Math.round((player.duration || 0) * 1000));
+  });
+
   return (
     <View style={styles.wrap}>
       {renderUrl ? (
-        <Video
+        <VideoView
           style={styles.video}
-          source={{ uri: renderUrl }}
-          useNativeControls
-          resizeMode={ResizeMode.COVER}
-          onPlaybackStatusUpdate={(status) => {
-            if (!status.isLoaded) return;
-            setPosition(status.positionMillis ?? 0);
-            setDuration(status.durationMillis ?? 0);
-          }}
+          player={player}
+          nativeControls
+          contentFit="cover"
         />
       ) : (
         <View style={styles.placeholder}>

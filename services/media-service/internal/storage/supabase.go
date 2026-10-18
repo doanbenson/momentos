@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-// Client mints Supabase Storage signed upload/download URLs with the service role.
-// Never expose the service-role key to mobile.
+// Client mints Supabase Storage signed upload/download URLs with the secret key.
+// Never expose the secret key to mobile.
 type Client struct {
 	baseURL    string // e.g. https://xxx.supabase.co
 	serviceKey string
@@ -21,10 +21,10 @@ type Client struct {
 	http       *http.Client
 }
 
-func New(supabaseURL, serviceRoleKey, bucket string) *Client {
+func New(supabaseURL, secretKey, bucket string) *Client {
 	return &Client{
 		baseURL:    strings.TrimRight(supabaseURL, "/"),
-		serviceKey: serviceRoleKey,
+		serviceKey: secretKey,
 		bucket:     bucket,
 		http:       &http.Client{Timeout: 30 * time.Second},
 	}

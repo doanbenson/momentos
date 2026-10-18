@@ -146,13 +146,18 @@ func (h *Handler) heartbeatJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func jobToJSON(j *database.Job) map[string]any {
+	payload := j.Payload
+	// Empty RawMessage embeds as zero bytes and corrupts the envelope JSON.
+	if len(payload) == 0 {
+		payload = json.RawMessage(`{}`)
+	}
 	out := map[string]any{
 		"id":        j.ID,
 		"momentId":  j.MomentID,
 		"jobType":   j.JobType,
 		"status":    j.Status,
 		"attempt":   j.Attempt,
-		"payload":   json.RawMessage(j.Payload),
+		"payload":   json.RawMessage(payload),
 		"createdAt": j.CreatedAt,
 		"updatedAt": j.UpdatedAt,
 	}

@@ -43,7 +43,7 @@ func main() {
 		fatal(err)
 	}
 
-	storageClient := storage.New(cfg.SupabaseURL, cfg.SupabaseServiceRoleKey, cfg.StorageBucket)
+	storageClient := storage.New(cfg.SupabaseURL, cfg.SupabaseSecretKey, cfg.StorageBucket)
 	svc := business.NewService(store, storageClient)
 	mux := api.NewMux(api.Deps{
 		Service: svc,
@@ -73,23 +73,23 @@ type config struct {
 	Addr                   string
 	DatabaseURL            string
 	SupabaseURL            string
-	SupabaseServiceRoleKey string
-	StorageBucket          string
-	InternalServiceToken   string
-	MigrationsDir          string
-	AutoMigrate            bool
+	SupabaseSecretKey    string
+	StorageBucket        string
+	InternalServiceToken string
+	MigrationsDir        string
+	AutoMigrate          bool
 }
 
 func loadConfig() (config, error) {
 	cfg := config{
-		Addr:                   env("MEDIA_SERVICE_ADDR", ":8082"),
-		DatabaseURL:            env("DATABASE_URL", env("MEDIA_DATABASE_URL", "")),
-		SupabaseURL:            env("SUPABASE_URL", ""),
-		SupabaseServiceRoleKey: env("SUPABASE_SERVICE_ROLE_KEY", ""),
-		StorageBucket:          env("MEDIA_STORAGE_BUCKET", "momentos-media"),
-		InternalServiceToken:   env("INTERNAL_SERVICE_TOKEN", ""),
-		MigrationsDir:          env("MEDIA_MIGRATIONS_DIR", ""),
-		AutoMigrate:            env("MEDIA_AUTO_MIGRATE", "true") != "false",
+		Addr:                 env("MEDIA_SERVICE_ADDR", ":8082"),
+		DatabaseURL:          env("DATABASE_URL", env("MEDIA_DATABASE_URL", "")),
+		SupabaseURL:          env("SUPABASE_URL", ""),
+		SupabaseSecretKey:    env("SUPABASE_SECRET_KEY", ""),
+		StorageBucket:        env("MEDIA_STORAGE_BUCKET", "momentos-media"),
+		InternalServiceToken: env("INTERNAL_SERVICE_TOKEN", ""),
+		MigrationsDir:        env("MEDIA_MIGRATIONS_DIR", ""),
+		AutoMigrate:          env("MEDIA_AUTO_MIGRATE", "true") != "false",
 	}
 	if cfg.DatabaseURL == "" {
 		return cfg, fmt.Errorf("DATABASE_URL or MEDIA_DATABASE_URL is required")
@@ -97,8 +97,8 @@ func loadConfig() (config, error) {
 	if cfg.SupabaseURL == "" {
 		return cfg, fmt.Errorf("SUPABASE_URL is required")
 	}
-	if cfg.SupabaseServiceRoleKey == "" {
-		return cfg, fmt.Errorf("SUPABASE_SERVICE_ROLE_KEY is required")
+	if cfg.SupabaseSecretKey == "" {
+		return cfg, fmt.Errorf("SUPABASE_SECRET_KEY is required")
 	}
 	if cfg.InternalServiceToken == "" {
 		return cfg, fmt.Errorf("INTERNAL_SERVICE_TOKEN is required")

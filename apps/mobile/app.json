@@ -21,11 +21,12 @@
         }
       ],
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": "Allow Momentos to record voice Assets."
         }
       ],
+      "expo-video",
       [
         "expo-media-library",
         {
