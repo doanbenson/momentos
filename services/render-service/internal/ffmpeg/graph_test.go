@@ -13,7 +13,7 @@ func abs(n int) int {
 	return n
 }
 
-func TestAppendInputArgs_LoopOnlyOnPhotos(t *testing.T) {
+func TestAppendInputArgs_NoLoopOnPhotos(t *testing.T) {
 	plan := Plan{
 		EditAudioPath: "/tmp/edit.m4a",
 		Clips: []ClipInput{
@@ -23,22 +23,45 @@ func TestAppendInputArgs_LoopOnlyOnPhotos(t *testing.T) {
 	}
 	args := appendInputArgs(nil, plan)
 	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "-loop 1 -t 2.000 -i /tmp/p1.jpg") {
-		t.Fatalf("photo missing loop args: %v", args)
+	if strings.Contains(joined, "-loop") {
+		t.Fatalf("photos/videos must not use -loop 1 (decode once in filtergraph): %v", args)
 	}
-	// Video must be a bare -i, never -loop before its path.
-	vidAt := -1
-	for i := 0; i < len(args)-1; i++ {
-		if args[i] == "-i" && args[i+1] == "/tmp/v1.mp4" {
-			vidAt = i
-			break
-		}
+	if !strings.Contains(joined, "-threads 2 -i /tmp/p1.jpg") {
+		t.Fatalf("photo missing capped -threads 2 -i: %v", args)
 	}
-	if vidAt < 0 {
-		t.Fatalf("video -i missing: %v", args)
+	if !strings.Contains(joined, "-threads 2 -i /tmp/v1.mp4") {
+		t.Fatalf("video missing capped -threads 2 -i: %v", args)
 	}
-	if vidAt >= 2 && args[vidAt-2] == "-loop" {
-		t.Fatalf("video must not use -loop: %v", args)
+}
+
+func TestBuildFilterComplex_PhotoUsesFiltergraphLoopNotZoompanOnRawJPEG(t *testing.T) {
+	plan := Plan{
+		EditAudioPath:  "/tmp/edit.m4a",
+		StyleProfileID: StyleProfileLifeOnFilmV1,
+		Clips: []ClipInput{
+			{
+				AssetID: "p1", Order: 0, StartMs: 0, EndMs: 952, Type: AssetPhoto, LocalPath: "/tmp/p1.jpg",
+				Role: RoleMontage, Act: ActHero, MotionPreset: MotionHandheldSuper8Drift,
+				VisualStyle: VisualSuper8Gate, TransitionIn: TransitionNone,
+			},
+		},
+	}
+	filter, _, _, err := buildFilterComplex(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(filter, "loop=loop=") {
+		t.Fatalf("photo must loop scaled frame in filtergraph\n%s", filter)
+	}
+	// Drift path: static overscan scale, then crop weave to gate (no frame-var scale=).
+	if !strings.Contains(filter, fmt.Sprintf("scale=%d:%d", Act3DriftOverscanWidth, Act3DriftOverscanHeight)) {
+		t.Fatalf("act3 drift photo must static-scale overscan before loop\n%s", filter)
+	}
+	if !strings.Contains(filter, fmt.Sprintf("crop=w=%d:h=%d:", Super8GateWidth, Super8GateHeight)) {
+		t.Fatalf("act3 drift photo must crop to fixed gate size\n%s", filter)
+	}
+	if !strings.Contains(filter, "sin(2*PI*t") {
+		t.Fatalf("act3 drift must animate crop x/y with t, not scale\n%s", filter)
 	}
 }
 
@@ -69,6 +92,41 @@ func TestBuildFilterComplex_PhotoAndVideoAndVO(t *testing.T) {
 		if !strings.Contains(filter, need) {
 			t.Fatalf("filter missing %q\n%s", need, filter)
 		}
+	}
+}
+
+func TestBuildFilterComplex_SingleReflectionVOUsesAcopy(t *testing.T) {
+	// Single adelay VO must use acopy — ffmpeg "copy" is video-only and rejects audio.
+	plan := Plan{
+		EditAudioPath:      "/tmp/edit.m4a",
+		StyleProfileID:     StyleProfileLifeOnFilmV1,
+		ReflectionQuestion: "What made this week yours?",
+		Clips: []ClipInput{
+			{
+				AssetID: "r1", Order: 0, StartMs: 0, EndMs: 3000, Type: AssetVideo, LocalPath: "/tmp/r.mp4",
+				Role: RoleReflection, Act: ActReflection, MotionPreset: MotionNativeActionCrop,
+				VisualStyle: VisualClean916, TransitionIn: TransitionNone,
+			},
+			{
+				AssetID: "h1", Order: 1, StartMs: 0, EndMs: 1905, Type: AssetPhoto, LocalPath: "/tmp/h.jpg",
+				Role: RoleHeroOutro, Act: ActHero, MotionPreset: MotionHandheldSuper8Drift,
+				VisualStyle: VisualSuper8Gate, TransitionIn: TransitionNone,
+			},
+		},
+	}
+	filter, _, _, err := buildFilterComplex(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(filter, "adelay=") {
+		t.Fatalf("expected reflection VO adelay\n%s", filter)
+	}
+	if !strings.Contains(filter, "acopy[vos]") {
+		t.Fatalf("single VO must use acopy[vos], not video copy\n%s", filter)
+	}
+	// Guard against the regression: audio pad feeding video copy.
+	if strings.Contains(filter, "]copy[vos]") {
+		t.Fatalf("must not use video copy for VO passthrough\n%s", filter)
 	}
 }
 
@@ -167,7 +225,8 @@ func TestBuildFilterComplex_Act3HeroOutroStyleProfile(t *testing.T) {
 		"noise=alls=14",
 		"fps=18", // posterize cadence
 		"fps=30", // return to canvas rate without setpts stretch
-		"2*sin(on/18)", // gate weave (no Ken Burns)
+		"sin(2*PI*t", // gate weave via crop x/y (t), scale stays static
+		"loop=loop=",  // hold scaled still in filtergraph
 	} {
 		if !strings.Contains(filter, need) {
 			t.Fatalf("Act 3 Style Profile graph missing %q\n%s", need, filter)
@@ -322,8 +381,19 @@ func TestBuildFilterComplex_MotionPresetsDistinct(t *testing.T) {
 	if !strings.Contains(filters[2], "sin(on/") {
 		t.Fatal("handheld_super8_drift must use drift zoompan")
 	}
-	if !strings.Contains(filters[3], "zoompan=z='1'") {
-		t.Fatal("native_action_crop must hold without Ken Burns zoom")
+	// native_action_crop: scaled loop hold only — no Ken Burns zoompan.
+	if !strings.Contains(filters[3], "loop=loop=") {
+		t.Fatal("native_action_crop must loop the scaled still")
+	}
+	if strings.Contains(filters[3], "zoompan=") && strings.Count(filters[3], "zoompan=") > 1 {
+		// hero may still use act3 weave; the montage native clip itself must not zoompan.
+		montageSeg := filters[3]
+		if idx := strings.Index(montageSeg, "[v0]"); idx > 0 {
+			montageSeg = montageSeg[:idx+4]
+		}
+		if strings.Contains(montageSeg, "zoompan=") {
+			t.Fatalf("native_action_crop montage must not use zoompan\n%s", montageSeg)
+		}
 	}
 }
 
@@ -361,16 +431,19 @@ func TestBuildFilterComplex_Act3LookOnAllAct3Clips(t *testing.T) {
 		"unsharp=",
 		"noise=alls=14",
 		"fps=18",
-		"concat=n=3",
+		"concat=n=2", // Act3 pair concat, then Act1+Act3 concat
 	}
 	for _, need := range needs {
 		if !strings.Contains(filter, need) {
 			t.Fatalf("Act3-all look missing %q\n%s", need, filter)
 		}
 	}
-	// Two act=3 clips → style applied twice (coda + hero)
-	if strings.Count(filter, "fps=18") < 2 {
-		t.Fatalf("expected Act3 look on both act=3 clips, fps=18 count=%d\n%s", strings.Count(filter, "fps=18"), filter)
+	// Contiguous Act3 run → shared grade once (memory), not per-clip.
+	if strings.Count(filter, "fps=18") != 1 {
+		t.Fatalf("expected one shared Act3 look pass, fps=18 count=%d\n%s", strings.Count(filter, "fps=18"), filter)
+	}
+	if !strings.Contains(filter, "vact3raw") && !strings.Contains(filter, "[vact3]") {
+		t.Fatalf("expected shared Act3 concat path\n%s", filter)
 	}
 }
 
@@ -483,6 +556,10 @@ func TestBuildFilterComplex_Act1BannerFromReflectionQuestion(t *testing.T) {
 			t.Fatalf("Act 1 banner/captions missing %q\n%s", need, filter)
 		}
 	}
+	// On hosts with a resolvable system font, drawtext must bypass Fontconfig.
+	if resolveDrawtextFont() != "" && !strings.Contains(filter, "fontfile=") {
+		t.Fatalf("drawtext must set fontfile when a system font is available\n%s", filter)
+	}
 }
 
 func TestBuildFilterComplex_VoiceOnlyClean916Slate(t *testing.T) {
@@ -549,7 +626,8 @@ func TestBuildFilterComplex_ReflectionPlusSixMontageFixture(t *testing.T) {
 		clips = append(clips, ClipInput{
 			AssetID: fmt.Sprintf("m%d", i), Order: i + 1, StartMs: 0, EndMs: 952, Type: AssetPhoto,
 			LocalPath: fmt.Sprintf("/tmp/m%d.jpg", i),
-			Role: RoleMontage, Act: ActMontage, MotionPreset: MotionWhipPunchIn, VisualStyle: VisualClean916,
+			// Act 3 montage (Life on Film look) — matches deterministic director defaults.
+			Role: RoleMontage, Act: ActHero, MotionPreset: MotionHandheldSuper8Drift, VisualStyle: VisualSuper8Gate,
 			TransitionIn: TransitionNone,
 		})
 	}
@@ -576,10 +654,14 @@ func TestBuildFilterComplex_ReflectionPlusSixMontageFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(filter, "concat=n=7") {
-		t.Fatalf("1 Reflection + 6 montage fixture needs concat=n=7\n%s", filter)
+	// Shared Act3: concat 6 montage/hero → one grade → join with Reflection.
+	if !strings.Contains(filter, "concat=n=6") {
+		t.Fatalf("1 Reflection + 6 Act3 pictures should concat Act3 as n=6\n%s", filter)
 	}
-	for _, need := range []string{"volume=", "0.18", "fixture banner", "fps=18", "noise="} {
+	if strings.Count(filter, "fps=18") != 1 {
+		t.Fatalf("shared Act3 should apply fps=18 once, got %d\n%s", strings.Count(filter, "fps=18"), filter)
+	}
+	for _, need := range []string{"volume=", "0.18", "fixture banner", "fps=18", "noise=", "acopy[vos]"} {
 		if !strings.Contains(filter, need) {
 			t.Fatalf("1+6 fixture missing %q\n%s", need, filter)
 		}

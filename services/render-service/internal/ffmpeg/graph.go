@@ -2,6 +2,8 @@ package ffmpeg
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/doanbenson/momentos/services/render-service/internal/songpick"
@@ -31,8 +33,11 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 	filePics := pictureFileInputs(pics)
 	editIdx := len(filePics) + len(voices) + len(flashesWithPath(flashes)) + len(sfxMarkers) + overlayInputs
 	var b strings.Builder
-	vLabels := make([]string, 0, len(pics))
 
+	// Build each picture clip at canvas size WITHOUT per-clip Act3 grade.
+	// Act3 look is applied once after concatenating the Act3 run (memory: one noise/fps
+	// chain instead of N) when Act1… then Act3… are contiguous — the Life on Film shape.
+	built := make([]picLabel, 0, len(pics))
 	fileIdx := 0
 	for i, c := range pics {
 		label := fmt.Sprintf("v%d", i)
@@ -55,20 +60,33 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 		default:
 			return "", "", "", fmt.Errorf("picture clip type %q not supported", c.Type)
 		}
-		if c.usesAct3Look() && plan.StyleProfileID == StyleProfileLifeOnFilmV1 {
-			styled := label + "s"
-			appendAct3Style(&b, label, styled)
-			label = styled
-		}
-		vLabels = append(vLabels, "["+label+"]")
+		act3 := c.usesAct3Look() && plan.StyleProfileID == StyleProfileLifeOnFilmV1
+		built = append(built, picLabel{label: label, act3: act3})
 	}
 
-	videoSrc := "vbase"
-	if len(vLabels) == 1 {
-		fmt.Fprintf(&b, "%scopy[%s];", vLabels[0], videoSrc)
-	} else {
-		fmt.Fprintf(&b, "%sconcat=n=%d:v=1:a=0[%s];", strings.Join(vLabels, ""), len(vLabels), videoSrc)
+	videoSrc, err := concatWithSharedAct3Style(&b, built)
+	if err != nil {
+		return "", "", "", err
 	}
+	// #region agent log
+	act3N := 0
+	for _, c := range built {
+		if c.act3 {
+			act3N++
+		}
+	}
+	filterSoFar := b.String()
+	agentDbg("H2", "graph.go:buildFilterComplex:layout", "picture layout + scale audit", map[string]any{
+		"pictureCount":       len(built),
+		"act3Count":          act3N,
+		"sharedAct3Pass":     act3N > 0 && !act3Interleaved(built),
+		"filterLen":          b.Len(),
+		"scaleSegments":      scaleSegments(filterSoFar),
+		"hasCropT":           strings.Contains(filterSoFar, "sin(2*PI*t"),
+		"hasAct1Overscan":    strings.Contains(filterSoFar, fmt.Sprintf("scale=%d:%d", Act1OverscanWidth, Act1OverscanHeight)),
+		"hasAct3Overscan":    strings.Contains(filterSoFar, fmt.Sprintf("scale=%d:%d", Act3DriftOverscanWidth, Act3DriftOverscanHeight)),
+	})
+	// #endregion
 
 	videoSrc = appendBannerAndCaptions(&b, videoSrc, plan)
 	flashInputBase := len(filePics) + len(voices)
@@ -76,10 +94,11 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 	if plan.OverlayPath != "" {
 		overlayIdx := len(filePics) + len(voices) + len(flashesWithPath(flashes)) + len(sfxMarkers)
 		styled := videoSrc + "ov"
+		// Single-frame overlay PNG: loop in filtergraph (no -loop 1 on input).
 		fmt.Fprintf(&b,
-			"[%d:v]scale=%d:%d,format=rgba[%sov];"+
-				"[%s][%sov]overlay=0:0:format=auto[%s];",
-			overlayIdx, CanvasWidth, CanvasHeight, videoSrc, videoSrc, videoSrc, styled,
+			"[%d:v]scale=%d:%d,format=rgba,loop=loop=-1:size=1:start=0,setpts=N/%d/TB[%sov];"+
+				"[%s][%sov]overlay=0:0:format=auto:shortest=1[%s];",
+			overlayIdx, CanvasWidth, CanvasHeight, FrameRate, videoSrc, videoSrc, videoSrc, styled,
 		)
 		videoSrc = styled
 	}
@@ -152,7 +171,14 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 
 	voMix := "vos"
 	if len(voAndSFX) == 1 {
-		fmt.Fprintf(&b, "%scopy[%s];", voAndSFX[0], voMix)
+		// acopy — ffmpeg's "copy" filter is video-only and rejects audio pads.
+		fmt.Fprintf(&b, "%sacopy[%s];", voAndSFX[0], voMix)
+		// #region agent log
+		agentDbg("F", "graph.go:buildFilterComplex:vo-passthrough", "single VO uses acopy", map[string]any{
+			"voCount": 1,
+			"label":   voAndSFX[0],
+		})
+		// #endregion
 	} else {
 		fmt.Fprintf(&b, "%samix=inputs=%d:duration=longest:dropout_transition=0[%s];",
 			strings.Join(voAndSFX, ""), len(voAndSFX), voMix)
@@ -168,31 +194,30 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 }
 
 // appendPhotoClip builds one photo segment with Motion Preset.
+// Decode path: scale/crop the single still FIRST, then loop that tiny frame in RAM
+// (never -loop 1 on the JPEG input — that re-decodes 12MP+ every frame).
 func appendPhotoClip(b *strings.Builder, inIdx int, label string, c ClipInput, frames int) {
-	// Act 3 Life on Film: fill film-gate print, subtle gate weave (no Ken Burns),
-	// then pad onto warm-black canvas. Color/grain/cadence applied in appendAct3Style.
 	if c.usesAct3Look() {
 		appendAct3PhotoMotion(b, inIdx, label, c, frames)
 		return
 	}
-	aspect := "increase"
-	cropOrPad := fmt.Sprintf("crop=%d:%d", CanvasWidth, CanvasHeight)
 	motion := c.MotionPreset
 	if motion == "" {
 		motion = MotionHookSlowPush
 	}
+	// Static overscan scale (no t/n/pos) → crop to canvas → loop hold.
 	base := fmt.Sprintf(
-		"[%d:v]scale=%d:%d:force_original_aspect_ratio=%s,%s,setsar=1,format=yuv420p",
-		inIdx, CanvasWidth, CanvasHeight, aspect, cropOrPad,
+		"[%d:v]scale=%d:%d:force_original_aspect_ratio=increase,"+
+			"crop=%d:%d,setsar=1,format=yuv420p,"+
+			"loop=loop=%d:size=1:start=0,setpts=N/%d/TB,fps=%d",
+		inIdx, Act1OverscanWidth, Act1OverscanHeight, CanvasWidth, CanvasHeight,
+		frames, FrameRate, FrameRate,
 	)
 	switch motion {
 	case MotionNativeActionCrop:
-		// Hold still for clip duration without Ken Burns.
-		fmt.Fprintf(b,
-			"%s,zoompan=z='1':x='0':y='0':d=%d:s=%dx%d:fps=%d[%s];",
-			base, frames, CanvasWidth, CanvasHeight, FrameRate, label,
-		)
+		fmt.Fprintf(b, "%s[%s];", base, label)
 	case MotionWhipPunchIn:
+		// Mild punch on already-scaled frames (cheap vs zoompan on 12MP).
 		fmt.Fprintf(b,
 			"%s,zoompan=z='min(1.0+0.012*on,1.28)':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"+
 				"d=%d:s=%dx%d:fps=%d[%s];",
@@ -214,26 +239,129 @@ func appendPhotoClip(b *strings.Builder, inIdx int, label string, c ClipInput, f
 	}
 }
 
-// appendAct3PhotoMotion scales to the 960×1280 film print with tiny gate weave.
+// appendAct3PhotoMotion: static overscan scale → loop → fixed-size crop weave.
 // Output stays at gate size; appendAct3Style grades + pads onto the canvas.
-// White-flash accents stay on the timeline overlay path (transitionIn / markers).
+// Never put t/n/pos in scale= (init eval_mode rejects them; eval=frame breaks concat size).
 func appendAct3PhotoMotion(b *strings.Builder, inIdx int, label string, c ClipInput, frames int) {
-	base := fmt.Sprintf(
-		"[%d:v]scale=%d:%d:force_original_aspect_ratio=increase,"+
-			"crop=%d:%d,setsar=1,format=yuv420p",
-		inIdx, Super8GateWidth, Super8GateHeight, Super8GateWidth, Super8GateHeight,
-	)
-	// Whip punch on first montage frame; else 2px film-gate weave (no Ken Burns).
-	zExpr := "1"
+	gateW, gateH := Super8GateWidth, Super8GateHeight
+	if c.MotionPreset == MotionNativeActionCrop {
+		fmt.Fprintf(b,
+			"[%d:v]scale=%d:%d:force_original_aspect_ratio=increase,"+
+				"crop=%d:%d,setsar=1,format=yuv420p,"+
+				"loop=loop=%d:size=1:start=0,setpts=N/%d/TB,fps=%d[%s];",
+			inIdx, gateW, gateH, gateW, gateH,
+			frames, FrameRate, FrameRate, label,
+		)
+		return
+	}
+	// Loop before crop so t advances per held frame; crop w/h stay constant.
+	xOff, yOff := "6*sin(2*PI*t*1.5)", "5*cos(2*PI*t*1.1)"
 	if c.MotionPreset == MotionWhipPunchIn {
-		zExpr = "if(eq(on\\,1)\\,1.04\\,1)"
+		// One-frame punch via larger first-frame offset; then settle into weave.
+		xOff = "if(lt(t\\,0.04)\\,18\\,6*sin(2*PI*t*1.5))"
+		yOff = "if(lt(t\\,0.04)\\,14\\,5*cos(2*PI*t*1.1))"
 	}
 	fmt.Fprintf(b,
-		"%s,zoompan=z='%s':"+
-			"x='(iw-iw/zoom)/2+2*sin(on/18)':y='(ih-ih/zoom)/2+2*cos(on/22)':"+
-			"d=%d:s=%dx%d:fps=%d[%s];",
-		base, zExpr, frames, Super8GateWidth, Super8GateHeight, FrameRate, label,
+		"[%d:v]scale=%d:%d:force_original_aspect_ratio=increase,"+
+			"setsar=1,format=yuv420p,"+
+			"loop=loop=%d:size=1:start=0,setpts=N/%d/TB,fps=%d,"+
+			"crop=w=%d:h=%d:x='(iw-%d)/2+%s':y='(ih-%d)/2+%s'[%s];",
+		inIdx, Act3DriftOverscanWidth, Act3DriftOverscanHeight,
+		frames, FrameRate, FrameRate,
+		gateW, gateH, gateW, xOff, gateH, yOff, label,
 	)
+}
+
+type picLabel struct {
+	label string
+	act3  bool
+}
+
+// concatWithSharedAct3Style concatenates picture labels and applies Life on Film
+// grade once across a contiguous Act3 run (Reflection Act1 + montage Act3).
+// Falls back to per-clip Act3 if Act1/Act3 are interleaved (unexpected for MVP).
+func concatWithSharedAct3Style(b *strings.Builder, built []picLabel) (string, error) {
+	if len(built) == 0 {
+		return "", fmt.Errorf("no picture labels")
+	}
+
+	// Detect Contiguous prefix of !act3 then suffix of act3.
+	firstAct3 := -1
+	interleaved := false
+	for i, c := range built {
+		if c.act3 {
+			if firstAct3 < 0 {
+				firstAct3 = i
+			}
+		} else if firstAct3 >= 0 {
+			interleaved = true
+			break
+		}
+	}
+
+	if interleaved || firstAct3 < 0 {
+		// Per-clip Act3 (or no Act3): style each act3 label then concat all.
+		labels := make([]string, 0, len(built))
+		for i, c := range built {
+			lab := c.label
+			if c.act3 {
+				styled := fmt.Sprintf("%ss", lab)
+				appendAct3Style(b, lab, styled)
+				lab = styled
+			}
+			labels = append(labels, "["+lab+"]")
+			_ = i
+		}
+		return concatVideoLabels(b, labels, "vbase"), nil
+	}
+
+	pre := built[:firstAct3]
+	act3 := built[firstAct3:]
+
+	var parts []string
+	if len(pre) > 0 {
+		preLabels := make([]string, len(pre))
+		for i, c := range pre {
+			preLabels[i] = "[" + c.label + "]"
+		}
+		parts = append(parts, "["+concatVideoLabels(b, preLabels, "vact1")+"]")
+	}
+	if len(act3) > 0 {
+		aLabels := make([]string, len(act3))
+		for i, c := range act3 {
+			aLabels[i] = "[" + c.label + "]"
+		}
+		joined := concatVideoLabels(b, aLabels, "vact3raw")
+		appendAct3Style(b, joined, "vact3")
+		parts = append(parts, "[vact3]")
+	}
+	return concatVideoLabels(b, parts, "vbase"), nil
+}
+
+func concatVideoLabels(b *strings.Builder, labels []string, out string) string {
+	if len(labels) == 0 {
+		return out
+	}
+	if len(labels) == 1 {
+		fmt.Fprintf(b, "%scopy[%s];", labels[0], out)
+		return out
+	}
+	fmt.Fprintf(b, "%sconcat=n=%d:v=1:a=0[%s];", strings.Join(labels, ""), len(labels), out)
+	return out
+}
+
+func act3Interleaved(built []picLabel) bool {
+	firstAct3 := -1
+	for i, c := range built {
+		if c.act3 {
+			if firstAct3 < 0 {
+				firstAct3 = i
+			}
+		} else if firstAct3 >= 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func appendVideoClip(b *strings.Builder, inIdx int, label string, c ClipInput) {
@@ -314,14 +442,15 @@ func appendAct3Style(b *strings.Builder, inLabel, outLabel string) {
 func appendBannerAndCaptions(b *strings.Builder, inLabel string, plan Plan) string {
 	cur := inLabel
 	act1End := plan.Act1PictureEndMs()
+	fontOpt := drawtextFontfileOpt()
 	if plan.ReflectionQuestion != "" && act1End > 0 {
 		next := "vbanner"
 		text := escapeDrawtext(plan.ReflectionQuestion)
 		end := msToSec(act1End)
 		fmt.Fprintf(b,
-			"[%s]drawtext=text='%s':fontsize=44:fontcolor=white:borderw=2:bordercolor=black@"+
+			"[%s]drawtext=text='%s'%s:fontsize=44:fontcolor=white:borderw=2:bordercolor=black@"+
 				"0.7:x=(w-text_w)/2:y=h*0.08:enable='between(t\\,0\\,%s)'[%s];",
-			cur, text, end, next,
+			cur, text, fontOpt, end, next,
 		)
 		cur = next
 	}
@@ -330,19 +459,67 @@ func appendBannerAndCaptions(b *strings.Builder, inLabel string, plan Plan) stri
 
 func appendCaptionBurns(b *strings.Builder, inLabel string, captions []Caption) string {
 	cur := inLabel
+	fontOpt := drawtextFontfileOpt()
 	for i, c := range captions {
 		next := fmt.Sprintf("vcapt%d", i)
 		start := msToSec(c.StartMs)
 		end := msToSec(c.EndMs)
 		text := escapeDrawtext(c.Text)
 		fmt.Fprintf(b,
-			"[%s]drawtext=text='%s':fontsize=52:fontcolor=white:borderw=3:bordercolor=black@"+
+			"[%s]drawtext=text='%s'%s:fontsize=52:fontcolor=white:borderw=3:bordercolor=black@"+
 				"0.7:x=(w-text_w)/2:y=h*0.78:enable='between(t\\,%s\\,%s)'[%s];",
-			cur, text, start, end, next,
+			cur, text, fontOpt, start, end, next,
 		)
 		cur = next
 	}
 	return cur
+}
+
+// drawtextFontfileOpt returns :fontfile='…' so drawtext does not rely on Fontconfig
+// (Winget FFmpeg on Windows crashes when fonts.conf is missing).
+func drawtextFontfileOpt() string {
+	path := resolveDrawtextFont()
+	if path == "" {
+		return ""
+	}
+	opt := ":fontfile='" + escapeDrawtextFontPath(path) + "'"
+	// #region agent log
+	agentDbg("A", "graph.go:drawtextFontfileOpt", "resolved drawtext fontfile", map[string]any{
+		"path": path,
+		"opt":  opt,
+	})
+	// #endregion
+	return opt
+}
+
+func resolveDrawtextFont() string {
+	candidates := []string{
+		os.Getenv("RENDER_DRAWTEXT_FONT"),
+		filepath.Join(os.Getenv("WINDIR"), "Fonts", "arial.ttf"),
+		`C:\Windows\Fonts\arial.ttf`,
+		`C:\Windows\Fonts\segoeui.ttf`,
+		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+		"/System/Library/Fonts/Supplemental/Arial.ttf",
+		"/System/Library/Fonts/Helvetica.ttc",
+	}
+	for _, p := range candidates {
+		if p == "" {
+			continue
+		}
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p
+		}
+	}
+	return ""
+}
+
+// escapeDrawtextFontPath formats a filesystem path for an ffmpeg filtergraph fontfile=.
+func escapeDrawtextFontPath(path string) string {
+	p := filepath.ToSlash(path)
+	// Filtergraph treats ':' as an option separator — escape drive + any other colons.
+	p = strings.ReplaceAll(p, `:`, `\:`)
+	p = strings.ReplaceAll(p, `'`, `\'`)
+	return p
 }
 
 // flashEvent is one coalesced white-flash accent on the timeline.
@@ -412,10 +589,14 @@ func appendFlashOverlays(b *strings.Builder, inLabel string, events []flashEvent
 			inIdx := flashInputBase + fileIdx
 			fileIdx++
 			src := fmt.Sprintf("flashsrc%d", flashIdx-1)
+			flashFrames := msToFrames(flashDur)
 			fmt.Fprintf(b,
-				"[%d:v]scale=%d:%d,format=yuva420p,fade=t=out:st=0:d=%s:alpha=1[%s];"+
+				"[%d:v]scale=%d:%d,format=yuva420p,"+
+					"loop=loop=%d:size=1:start=0,setpts=N/%d/TB,"+
+					"fade=t=out:st=0:d=%s:alpha=1[%s];"+
 					"[%s][%s]overlay=0:0:enable='between(t\\,%s\\,%s)'[%s];",
-				inIdx, CanvasWidth, CanvasHeight, msToSec(flashDur), src,
+				inIdx, CanvasWidth, CanvasHeight,
+				flashFrames, FrameRate, msToSec(flashDur), src,
 				cur, src, start, end, next,
 			)
 		} else {
@@ -510,31 +691,29 @@ func msToFrames(ms int) int {
 	return frames
 }
 
-// appendInputArgs writes -i (and photo loop flags) in graph order:
-// picture files (skip clean_916 slate), voices, flash stills, SFX, optional overlay, Edit Audio.
+// appendInputArgs writes -i in graph order with per-input decoder thread caps.
+// Photos are a SINGLE still frame (no -loop 1) — duration is made in filtergraph
+// via loop=size=1 after scale, so mjpeg never re-decodes 12MP every frame.
 func appendInputArgs(args []string, plan Plan) []string {
 	for _, c := range plan.PictureClips() {
 		if c.isClean916Slate() {
 			continue
 		}
-		if c.Type == AssetPhoto {
-			args = append(args, "-loop", "1", "-t", msToSec(c.DurationMs()), "-i", c.LocalPath)
-			continue
-		}
-		args = append(args, "-i", c.LocalPath)
+		args = append(args, "-threads", "2", "-i", c.LocalPath)
 	}
 	for _, c := range plan.VoiceClips() {
-		args = append(args, "-i", c.LocalPath)
+		args = append(args, "-threads", "2", "-i", c.LocalPath)
 	}
 	for _, e := range flashesWithPath(coalesceFlashEvents(plan)) {
-		args = append(args, "-loop", "1", "-t", msToSec(threeFrameMs()), "-i", e.LocalPath)
+		// Tiny flash PNG: single frame; overlay filter holds duration.
+		args = append(args, "-threads", "2", "-i", e.LocalPath)
 	}
 	for _, m := range sfxMarkersWithPath(plan.Markers) {
-		args = append(args, "-i", m.LocalPath)
+		args = append(args, "-threads", "2", "-i", m.LocalPath)
 	}
 	if plan.OverlayPath != "" {
-		args = append(args, "-loop", "1", "-t", msToSec(plan.PictureDurationMs()), "-i", plan.OverlayPath)
+		args = append(args, "-threads", "2", "-i", plan.OverlayPath)
 	}
-	args = append(args, "-i", plan.EditAudioPath)
+	args = append(args, "-threads", "2", "-i", plan.EditAudioPath)
 	return args
 }

@@ -82,6 +82,13 @@ const (
 	// 960×1280 is classic 3:4 vertical print ratio (@lifeonfilm.27).
 	Super8GateWidth  = 960
 	Super8GateHeight = 1280
+	// Act1Overscan is static scale headroom before crop to canvas (Ken Burns / hold).
+	// Never animate these with t/n/pos — scale init eval rejects frame vars.
+	Act1OverscanWidth  = 1140
+	Act1OverscanHeight = 2026
+	// Act3DriftOverscan is static scale headroom before fixed 960×1280 crop weave.
+	Act3DriftOverscanWidth  = 1000
+	Act3DriftOverscanHeight = 1334
 	// Act3CanvasPadColor is the warm-black letterbox behind the film print.
 	Act3CanvasPadColor = "0x0C0B0A"
 	// FlashFrames is white-flash duration (ADR 0021).

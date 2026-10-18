@@ -7,8 +7,77 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 )
+
+// #region agent log
+func agentDbg(hypothesisID, location, message string, data map[string]any) {
+	payload := map[string]any{
+		"sessionId":    "ae9acc",
+		"hypothesisId": hypothesisID,
+		"location":     location,
+		"message":      message,
+		"data":         data,
+		"timestamp":    time.Now().UnixMilli(),
+		"runId":        "post-fix",
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	// Prefer repo-root debug-ae9acc.log (workspace ingest path).
+	candidates := []string{}
+	if wd, err := os.Getwd(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(wd, "..", "..", "..", "..", "debug-ae9acc.log"), // cwd=internal/ffmpeg
+			filepath.Join(wd, "..", "..", "debug-ae9acc.log"),             // cwd=services/render-service
+			filepath.Join(wd, "debug-ae9acc.log"),
+		)
+	}
+	candidates = append(candidates,
+		filepath.Join("..", "..", "..", "..", "debug-ae9acc.log"),
+		filepath.Join("..", "..", "debug-ae9acc.log"),
+		"debug-ae9acc.log",
+	)
+	written := false
+	for _, p := range candidates {
+		f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			continue
+		}
+		_, _ = f.Write(append(b, '\n'))
+		_ = f.Close()
+		written = true
+		break
+	}
+	_ = written
+}
+
+// scaleSegments returns each scale=… filter argument for audit logs.
+func scaleSegments(filter string) []string {
+	out := make([]string, 0, 8)
+	rest := filter
+	for {
+		i := strings.Index(rest, "scale=")
+		if i < 0 {
+			break
+		}
+		rest = rest[i:]
+		end := strings.IndexAny(rest, ",;[")
+		if end < 0 {
+			out = append(out, rest)
+			break
+		}
+		out = append(out, rest[:end])
+		rest = rest[end:]
+	}
+	return out
+}
+
+// #endregion
 
 // Runner invokes local ffmpeg. Keep all encoding details here — not in ml/.
 type Runner struct {
@@ -44,8 +113,33 @@ func (r *Runner) Render(plan Plan, outPath string) error {
 		return fmt.Errorf("filter_complex: %w", err)
 	}
 
-	args := make([]string, 0, 32)
+	// #region agent log
+	segs := scaleSegments(filter)
+	frameVarScale := 0
+	for _, s := range segs {
+		if strings.Contains(s, "*t") || strings.Contains(s, "(t") ||
+			strings.Contains(s, "*n") || strings.Contains(s, "(n") ||
+			strings.Contains(s, "pos") {
+			frameVarScale++
+		}
+	}
+	agentDbg("H1", "runner.go:Render:pre-exec", "ffmpeg filter scale audit", map[string]any{
+		"goos":              runtime.GOOS,
+		"bin":               r.bin(),
+		"scaleCount":        len(segs),
+		"scaleSegments":     segs,
+		"frameVarScaleCount": frameVarScale,
+		"hasCropT":          strings.Contains(filter, "sin(2*PI*t"),
+		"hasZoompan":        strings.Contains(filter, "zoompan="),
+		"hasAct1Overscan":   strings.Contains(filter, fmt.Sprintf("scale=%d:%d", Act1OverscanWidth, Act1OverscanHeight)),
+		"hasAct3Overscan":   strings.Contains(filter, fmt.Sprintf("scale=%d:%d", Act3DriftOverscanWidth, Act3DriftOverscanHeight)),
+	})
+	// #endregion
+
+	args := make([]string, 0, 48)
 	args = append(args, "-y", "-hide_banner", "-loglevel", "error")
+	// Serialize filter_complex so N photo branches don't each allocate full frame pools.
+	args = append(args, "-filter_threads", "1", "-filter_complex_threads", "1")
 	args = appendInputArgs(args, plan)
 	args = append(args,
 		"-filter_complex", filter,
@@ -61,6 +155,20 @@ func (r *Runner) Render(plan Plan, outPath string) error {
 		"-shortest",
 		outPath,
 	)
+	// #region agent log
+	joinedArgs := strings.Join(args, " ")
+	agentDbg("G", "runner.go:Render:args", "ffmpeg invoke sizing", map[string]any{
+		"pictureCount":   len(plan.PictureClips()),
+		"clipCount":      len(plan.Clips),
+		"filterLen":      len(filter),
+		"fps18Count":     strings.Count(filter, "fps=18"),
+		"loopFilterCount": strings.Count(filter, "loop=loop="),
+		"hasInputLoop1":  strings.Contains(joinedArgs, "-loop 1"),
+		"hasAcopy":       strings.Contains(filter, "acopy["),
+		"hasFontfile":    strings.Contains(filter, "fontfile="),
+		"filterThreads":  strings.Contains(joinedArgs, "-filter_threads 1"),
+	})
+	// #endregion
 
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeout())
 	defer cancel()
@@ -83,6 +191,16 @@ func (r *Runner) Render(plan Plan, outPath string) error {
 		if msg == "" {
 			msg = err.Error()
 		}
+		// #region agent log
+		agentDbg("H1", "runner.go:Render:ffmpeg-fail", "ffmpeg encode failed", map[string]any{
+			"exit":             exit,
+			"stderrHead":       truncate(msg, 512),
+			"parsedScaleInit":  strings.Contains(msg, "Parsed_scale") && strings.Contains(msg, "init eval_mode"),
+			"hasFontconfig":    strings.Contains(msg, "Fontconfig"),
+			"frameVarScaleCount": frameVarScale,
+			"goos":             runtime.GOOS,
+		})
+		// #endregion
 		return fmt.Errorf("ffmpeg exit %d: %s", exit, truncate(msg, 2<<10))
 	}
 
@@ -182,4 +300,9 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
 }
