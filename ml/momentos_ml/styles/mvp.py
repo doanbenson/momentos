@@ -4,6 +4,9 @@ Song Pick / Edit Audio mirrors:
 - apps/mobile/src/config/song-pick.ts (MVP_SONG_PICK)
 - media-service config for Platform Song + Edit Audio object path
 ml does not invent a second Song catalog — use momentos_ml.config.MVP_SONG_PICK_ID.
+
+Beat-span / chorus-drop / system-media ids: momentos_ml.styles.song_pick +
+system_media (parity: packages/contracts/mvp-constants.json).
 """
 
 MVP_STYLE_PROFILE_ID = "life-on-film-v1"

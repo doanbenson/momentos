@@ -12,3 +12,9 @@ export const MVP_SONG_PICK = {
     musicId: undefined as string | undefined,
   },
 } as const;
+
+/**
+ * Beat / Style constants for this Song Pick live in packages/contracts/mvp-constants.json
+ * (mirrored by ml + render-service). Mobile keeps identity only for intake.
+ */
+export const MVP_STYLE_PROFILE_ID = "life-on-film-v1" as const;

@@ -1,0 +1,32 @@
+{
+  "songPickId": "live-a-life-you-will-remember",
+  "songPickTitle": "Live A Life You Will Remember",
+  "styleProfileId": "life-on-film-v1",
+  "vibeId": "live-a-life-remember-v0",
+  "nominalBpm": 126,
+  "legalSpanBeats": [1, 2, 4],
+  "heroOutroSpanBeats": 4,
+  "photoHoldBeats": 2,
+  "chorusDropBeatIndex": 96,
+  "systemMedia": {
+    "styleProfileRelativeRoot": "life-on-film-v1",
+    "storageKeyPrefix": "system/style-profiles/life-on-film-v1",
+    "items": {
+      "flash": {
+        "filename": "flash.png",
+        "kind": "overlay",
+        "mime": "image/png"
+      },
+      "sfx-shutter": {
+        "filename": "sfx-shutter.wav",
+        "kind": "sfx",
+        "mime": "audio/wav"
+      },
+      "overlay-film-burn": {
+        "filename": "overlay-film-burn.png",
+        "kind": "overlay",
+        "mime": "image/png"
+      }
+    }
+  }
+}

@@ -44,10 +44,13 @@ API (internal/api) — status / health
 | `RENDER_SERVICE_ADDR` | `:8083` | HTTP listen |
 | `RENDER_FFMPEG_PATH` | `ffmpeg` | Binary on PATH or absolute |
 | `RENDER_EDIT_AUDIO_PATH` | _(empty)_ | MVP local Edit Audio fallback |
+| `RENDER_SYSTEM_MEDIA_DIR` | `system-media` | Root containing `life-on-film-v1/` SFX/overlays |
 | `RENDER_WORKER_CONCURRENCY` | `1` | Cap 1–2 |
 
 ## Dependencies
 
 - Cut JSON + Asset type/URL map on job payload (moment-service broker HTTP still TODO)
 - Edit Audio via job `editAudioUrl` or `RENDER_EDIT_AUDIO_PATH`
+- System media (flash/SFX/overlays) via `internal/systemmedia` + pack under `system-media/` (see `scripts/seed-system-media.md`)
+- Song Pick span/chorus constants: `internal/songpick` (parity: `packages/contracts/mvp-constants.json`)
 - ffmpeg available on PATH (or `RENDER_FFMPEG_PATH`); readiness via `GET /readyz`

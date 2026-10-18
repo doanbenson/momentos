@@ -23,7 +23,7 @@ worker (momentos_ml/worker)
 | Beat | `momentos_ml/beat` | Edit Audio → BeatGrid; placements → ms |
 | Agents | `momentos_ml/agents` | Draft / revise Cut (stub or Gemini) |
 | Validate | `momentos_ml/validate` | Pydantic Cut aligned with OpenAPI |
-| Styles | `momentos_ml/styles` | MVP fixed Style Profile + Vibe |
+| Styles | `momentos_ml/styles` | MVP Style Profile + Vibe + Song Pick span constants + system media catalog |
 | Config | `momentos_ml/config.py` | Env + MVP Song Pick id |
 
 ## Jobs / events
@@ -44,6 +44,7 @@ worker (momentos_ml/worker)
 | `INTERNAL_SERVICE_TOKEN` | — | Bearer for internal job routes |
 | `JOB_QUEUE_URL` | — | Unused when moment-service jobs are primary |
 | `EDIT_AUDIO_PATH` | — | Local Edit Audio when job has no URL |
+| `SYSTEM_MEDIA_DIR` | render-service pack | Optional override for system media root |
 | `BEAT_CACHE_DIR` | `.beat_cache` | BeatGrid disk cache |
 | `CUT_DRAFT_JOB_JSON` | — | One-shot job JSON (no broker) |
 | `WORKER_POLL_INTERVAL_S` | `2.0` | Idle poll |

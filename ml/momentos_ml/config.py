@@ -5,11 +5,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-# Keep in sync with apps/mobile/src/config/song-pick.ts
+# Keep in sync with apps/mobile/src/config/song-pick.ts and
+# packages/contracts/mvp-constants.json (see styles.song_pick).
 MVP_SONG_PICK_ID = "live-a-life-you-will-remember"
 MVP_SONG_TITLE = "Live A Life You Will Remember"
 
-# Photo hold duration in beats (Round 2 parked; SPEC default).
+# Photo hold duration in beats (legal span; see styles.song_pick.LEGAL_SPAN_BEATS).
 PHOTO_HOLD_BEATS = 2
 
 # Repair / retry budget after first attempt (GRILL Q5): ≤2 then fail.
