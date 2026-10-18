@@ -204,15 +204,16 @@ func (s *Service) buildPlan(job *database.Job, scratch string) (ffmpeg.Plan, err
 	}
 
 	plan := ffmpeg.Plan{
-		MomentID:       job.MomentID,
-		CutID:          job.CutID,
-		CutVersion:     job.CutVersion,
-		EditAudioPath:  editPath,
-		StyleProfileID: styleProfileID,
-		OverlayPath:    overlayPath,
-		Clips:          clips,
-		Captions:       captions,
-		Markers:        markers,
+		MomentID:             job.MomentID,
+		CutID:                job.CutID,
+		CutVersion:           job.CutVersion,
+		EditAudioPath:        editPath,
+		StyleProfileID:       styleProfileID,
+		OverlayPath:          overlayPath,
+		ReflectionQuestion:   job.ReflectionQuestion,
+		Clips:                clips,
+		Captions:             captions,
+		Markers:              markers,
 	}
 	if err := plan.Validate(); err != nil {
 		return ffmpeg.Plan{}, Terminal("%s", err.Error())

@@ -1,6 +1,7 @@
 package ffmpeg
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -157,8 +158,10 @@ func TestBuildFilterComplex_Act3HeroOutroStyleProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, need := range []string{
-		"eq=saturation=",                       // warm grade
-		"drawbox=",                             // Super 8 border
+		"eq=saturation=",                       // warm Kodak grade
+		"980:1306",                             // Super 8 gate
+		"0x0A0A0A",                             // canvas pad
+		"noise=",                               // grain
 		"fps=18",                               // posterize
 		"fps=30",                               // return to canvas rate without setpts stretch
 		"force_original_aspect_ratio=decrease", // no stretch on hero_outro photo
@@ -268,5 +271,309 @@ func TestPlanValidate_LifeOnFilmRequiresHeroOutro(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "hero_outro") {
 		t.Fatalf("error should mention hero_outro: %v", err)
+	}
+}
+
+func TestBuildFilterComplex_MotionPresetsDistinct(t *testing.T) {
+	presets := []MotionPreset{
+		MotionHookSlowPush,
+		MotionWhipPunchIn,
+		MotionHandheldSuper8Drift,
+		MotionNativeActionCrop,
+	}
+	filters := make([]string, 0, len(presets))
+	for _, preset := range presets {
+		plan := Plan{
+			EditAudioPath:  "/tmp/edit.m4a",
+			StyleProfileID: StyleProfileLifeOnFilmV1,
+			Clips: []ClipInput{
+				{
+					AssetID: "p", Order: 0, StartMs: 0, EndMs: 2000, Type: AssetPhoto, LocalPath: "/tmp/p.jpg",
+					Role: RoleMontage, Act: ActMontage, MotionPreset: preset, VisualStyle: VisualClean916, TransitionIn: TransitionNone,
+				},
+				{
+					AssetID: "h", Order: 1, StartMs: 0, EndMs: 1905, Type: AssetPhoto, LocalPath: "/tmp/h.jpg",
+					Role: RoleHeroOutro, Act: ActHero, MotionPreset: MotionHandheldSuper8Drift, VisualStyle: VisualSuper8Gate, TransitionIn: TransitionNone,
+				},
+			},
+		}
+		filter, _, _, err := buildFilterComplex(plan)
+		if err != nil {
+			t.Fatalf("preset %s: %v", preset, err)
+		}
+		filters = append(filters, filter)
+	}
+	for i := 0; i < len(filters); i++ {
+		for j := i + 1; j < len(filters); j++ {
+			if filters[i] == filters[j] {
+				t.Fatalf("motion presets %s and %s produced identical filter graphs", presets[i], presets[j])
+			}
+		}
+	}
+	if !strings.Contains(filters[0], "0.0015*on") {
+		t.Fatal("hook_slow_push must use slow push zoompan")
+	}
+	if !strings.Contains(filters[1], "0.012*on") {
+		t.Fatal("whip_punch_in must use punch-in zoompan")
+	}
+	if !strings.Contains(filters[2], "sin(on/") {
+		t.Fatal("handheld_super8_drift must use drift zoompan")
+	}
+	if !strings.Contains(filters[3], "zoompan=z='1'") {
+		t.Fatal("native_action_crop must hold without Ken Burns zoom")
+	}
+}
+
+func TestBuildFilterComplex_Act3LookOnAllAct3Clips(t *testing.T) {
+	plan := Plan{
+		EditAudioPath:  "/tmp/edit.m4a",
+		StyleProfileID: StyleProfileLifeOnFilmV1,
+		Clips: []ClipInput{
+			{
+				AssetID: "r1", Order: 0, StartMs: 0, EndMs: 1000, Type: AssetVideo, LocalPath: "/tmp/r.mp4",
+				Role: RoleReflection, Act: ActReflection, VisualStyle: VisualClean916, TransitionIn: TransitionNone,
+			},
+			{
+				AssetID: "coda", Order: 1, StartMs: 0, EndMs: 1000, Type: AssetPhoto, LocalPath: "/tmp/coda.jpg",
+				Role: RoleMontage, Act: ActHero, MotionPreset: MotionHandheldSuper8Drift, VisualStyle: VisualSuper8Gate, TransitionIn: TransitionNone,
+			},
+			{
+				AssetID: "h1", Order: 2, StartMs: 0, EndMs: 1905, Type: AssetPhoto, LocalPath: "/tmp/h.jpg",
+				Role: RoleHeroOutro, Act: ActHero, MotionPreset: MotionHandheldSuper8Drift, VisualStyle: VisualSuper8Gate, TransitionIn: TransitionNone,
+			},
+		},
+	}
+	filter, _, _, err := buildFilterComplex(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := fmt.Sprintf("%d:%d", Super8GateWidth, Super8GateHeight)
+	needs := []string{
+		gate,           // Super 8 gate size
+		"0x0A0A0A",     // canvas pad color
+		"noise=",       // Kodak grain path
+		"eq=saturation=",
+		"fps=18",
+	}
+	for _, need := range needs {
+		if !strings.Contains(filter, need) {
+			t.Fatalf("Act3-all look missing %q\n%s", need, filter)
+		}
+	}
+	// Two act=3 clips → style applied twice (coda + hero)
+	if strings.Count(filter, "fps=18") < 2 {
+		t.Fatalf("expected Act3 look on both act=3 clips, fps=18 count=%d\n%s", strings.Count(filter, "fps=18"), filter)
+	}
+}
+
+func TestBuildFilterComplex_JCutMixVolumeEnvelope(t *testing.T) {
+	plan := Plan{
+		EditAudioPath:  "/tmp/edit.m4a",
+		StyleProfileID: StyleProfileLifeOnFilmV1,
+		Clips: []ClipInput{
+			{
+				AssetID: "r1", Order: 0, StartMs: 0, EndMs: 5000, Type: AssetVideo, LocalPath: "/tmp/r.mp4",
+				Role: RoleReflection, Act: ActReflection, VisualStyle: VisualClean916, TransitionIn: TransitionNone,
+			},
+			{
+				AssetID: "m1", Order: 1, StartMs: 0, EndMs: 1000, Type: AssetPhoto, LocalPath: "/tmp/m.jpg",
+				Role: RoleMontage, Act: ActMontage, MotionPreset: MotionWhipPunchIn, VisualStyle: VisualClean916, TransitionIn: TransitionNone,
+			},
+			{
+				AssetID: "h1", Order: 2, StartMs: 0, EndMs: 1905, Type: AssetPhoto, LocalPath: "/tmp/h.jpg",
+				Role: RoleHeroOutro, Act: ActHero, MotionPreset: MotionHandheldSuper8Drift, VisualStyle: VisualSuper8Gate, TransitionIn: TransitionNone,
+			},
+		},
+		Markers: []Marker{
+			{Type: MarkerJCut, AtMs: 1000}, // 4s before Act1 end (5000)
+			{Type: MarkerChorusDrop, AtMs: 5250},
+		},
+	}
+	filter, _, _, err := buildFilterComplex(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	energy := msToSec(SnapMsToFrame(5250))
+	for _, need := range []string{
+		"volume=",
+		"0.18",
+		"1.000", // j_cut at 1.000s
+		energy,  // chorus_drop snapped (±1 frame)
+	} {
+		if !strings.Contains(filter, need) {
+			t.Fatalf("J-cut mix missing %q\n%s", need, filter)
+		}
+	}
+}
+
+func TestBuildFilterComplex_FlashThreeFramesAndCoalesce(t *testing.T) {
+	plan := Plan{
+		EditAudioPath:  "/tmp/edit.m4a",
+		StyleProfileID: StyleProfileLifeOnFilmV1,
+		Clips: []ClipInput{
+			{
+				AssetID: "r1", Order: 0, StartMs: 0, EndMs: 1000, Type: AssetVideo, LocalPath: "/tmp/r.mp4",
+				Role: RoleReflection, Act: ActReflection, VisualStyle: VisualClean916, TransitionIn: TransitionNone,
+			},
+			{
+				AssetID: "m1", Order: 1, StartMs: 0, EndMs: 1000, Type: AssetPhoto, LocalPath: "/tmp/m.jpg",
+				Role: RoleMontage, Act: ActMontage, MotionPreset: MotionWhipPunchIn, VisualStyle: VisualClean916, TransitionIn: TransitionWhiteFlash,
+			},
+			{
+				AssetID: "h1", Order: 2, StartMs: 0, EndMs: 1905, Type: AssetPhoto, LocalPath: "/tmp/h.jpg",
+				Role: RoleHeroOutro, Act: ActHero, MotionPreset: MotionHandheldSuper8Drift, VisualStyle: VisualSuper8Gate, TransitionIn: TransitionNone,
+			},
+		},
+		Markers: []Marker{
+			// Same timestamp as m1 start (1000ms) — must coalesce with transitionIn
+			{Type: MarkerFlash, AtMs: 1000, SystemMediaID: "flash", LocalPath: "/tmp/flash.png"},
+			{Type: MarkerSFX, AtMs: 1000, SystemMediaID: "sfx-shutter", LocalPath: "/tmp/whoosh.wav"},
+		},
+	}
+	filter, _, _, err := buildFilterComplex(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flashDur := threeFrameMs()
+	start := msToSec(SnapMsToFrame(1000))
+	end := msToSec(SnapMsToFrame(1000) + flashDur)
+	if !strings.Contains(filter, "between(t\\,"+start+"\\,"+end+")") {
+		t.Fatalf("expected 3-frame flash window %s→%s\n%s", start, end, filter)
+	}
+	if n := strings.Count(filter, "fade=t=out"); n != 1 {
+		t.Fatalf("duplicate flashes at same timestamp must coalesce; fade overlays=%d\n%s", n, filter)
+	}
+}
+
+func TestBuildFilterComplex_Act1BannerFromReflectionQuestion(t *testing.T) {
+	plan := Plan{
+		EditAudioPath:        "/tmp/edit.m4a",
+		StyleProfileID:       StyleProfileLifeOnFilmV1,
+		ReflectionQuestion:   "What made you proud this week?",
+		Clips: []ClipInput{
+			{
+				AssetID: "r1", Order: 0, StartMs: 0, EndMs: 2000, Type: AssetVideo, LocalPath: "/tmp/r.mp4",
+				Role: RoleReflection, Act: ActReflection, VisualStyle: VisualClean916, TransitionIn: TransitionNone,
+			},
+			{
+				AssetID: "h1", Order: 1, StartMs: 0, EndMs: 1905, Type: AssetPhoto, LocalPath: "/tmp/h.jpg",
+				Role: RoleHeroOutro, Act: ActHero, MotionPreset: MotionHandheldSuper8Drift, VisualStyle: VisualSuper8Gate, TransitionIn: TransitionNone,
+			},
+		},
+		Captions: []Caption{{Text: "I shipped it", StartMs: 200, EndMs: 800}},
+	}
+	filter, _, _, err := buildFilterComplex(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, need := range []string{
+		"What made you proud this week?",
+		"I shipped it",
+		"drawtext=",
+	} {
+		if !strings.Contains(filter, need) {
+			t.Fatalf("Act 1 banner/captions missing %q\n%s", need, filter)
+		}
+	}
+}
+
+func TestBuildFilterComplex_VoiceOnlyClean916Slate(t *testing.T) {
+	plan := Plan{
+		EditAudioPath:      "/tmp/edit.m4a",
+		StyleProfileID:     StyleProfileLifeOnFilmV1,
+		ReflectionQuestion: "What stuck with you?",
+		Clips: []ClipInput{
+			{
+				AssetID: "slate", Order: 0, StartMs: 0, EndMs: 3000, Type: AssetPhoto, LocalPath: "",
+				Role: RoleReflection, Act: ActReflection, VisualStyle: VisualClean916, TransitionIn: TransitionNone,
+			},
+			{
+				AssetID: "vo", Order: 1, StartMs: 0, EndMs: 3000, Type: AssetVoice, LocalPath: "/tmp/vo.m4a",
+				Role: RoleReflection, Act: ActReflection, VisualStyle: VisualClean916, TransitionIn: TransitionNone,
+			},
+			{
+				AssetID: "h1", Order: 2, StartMs: 0, EndMs: 1905, Type: AssetPhoto, LocalPath: "/tmp/h.jpg",
+				Role: RoleHeroOutro, Act: ActHero, MotionPreset: MotionHandheldSuper8Drift, VisualStyle: VisualSuper8Gate, TransitionIn: TransitionNone,
+			},
+		},
+		Captions: []Caption{{Text: "hello", StartMs: 0, EndMs: 500}},
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("voice-only slate plan should validate: %v", err)
+	}
+	filter, _, _, err := buildFilterComplex(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, need := range []string{
+		"color=c=",
+		"What stuck with you?",
+		"hello",
+		"adelay=0|0",
+	} {
+		if !strings.Contains(filter, need) {
+			t.Fatalf("voice-only slate missing %q\n%s", need, filter)
+		}
+	}
+	// Slate stream [v0] is color→format only; hero may still use zoompan before concat.
+	slateIdx := strings.Index(filter, "color=c=")
+	if slateIdx < 0 {
+		t.Fatal("expected clean_916 color slate")
+	}
+	slateEnd := strings.Index(filter[slateIdx:], "[v0]")
+	if slateEnd < 0 {
+		t.Fatal("expected slate label [v0]")
+	}
+	slateSeg := filter[slateIdx : slateIdx+slateEnd]
+	if strings.Contains(slateSeg, "zoompan=") {
+		t.Fatalf("clean_916 Reflection slate must not use motion zoompan\n%s", slateSeg)
+	}
+}
+
+func TestBuildFilterComplex_ReflectionPlusSixMontageFixture(t *testing.T) {
+	clips := []ClipInput{
+		{
+			AssetID: "r1", Order: 0, StartMs: 0, EndMs: 2000, Type: AssetVideo, LocalPath: "/tmp/r.mp4",
+			Role: RoleReflection, Act: ActReflection, VisualStyle: VisualClean916, TransitionIn: TransitionNone,
+		},
+	}
+	for i := 0; i < 5; i++ {
+		clips = append(clips, ClipInput{
+			AssetID: fmt.Sprintf("m%d", i), Order: i + 1, StartMs: 0, EndMs: 952, Type: AssetPhoto,
+			LocalPath: fmt.Sprintf("/tmp/m%d.jpg", i),
+			Role: RoleMontage, Act: ActMontage, MotionPreset: MotionWhipPunchIn, VisualStyle: VisualClean916,
+			TransitionIn: TransitionNone,
+		})
+	}
+	clips = append(clips, ClipInput{
+		AssetID: "h1", Order: 6, StartMs: 0, EndMs: 1905, Type: AssetPhoto, LocalPath: "/tmp/h.jpg",
+		Role: RoleHeroOutro, Act: ActHero, MotionPreset: MotionHandheldSuper8Drift, VisualStyle: VisualSuper8Gate, TransitionIn: TransitionNone,
+	})
+	plan := Plan{
+		EditAudioPath:      "/tmp/edit.m4a",
+		StyleProfileID:     StyleProfileLifeOnFilmV1,
+		ReflectionQuestion: "fixture banner",
+		Clips:              clips,
+		Captions:           []Caption{{Text: "cue", StartMs: 0, EndMs: 400}},
+		Markers: []Marker{
+			{Type: MarkerJCut, AtMs: 0},
+			{Type: MarkerChorusDrop, AtMs: 2250},
+			{Type: MarkerFlash, AtMs: 2000, LocalPath: "/tmp/flash.png"},
+		},
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	filter, _, _, err := buildFilterComplex(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(filter, "concat=n=7") {
+		t.Fatalf("1 Reflection + 6 montage fixture needs concat=n=7\n%s", filter)
+	}
+	for _, need := range []string{"volume=", "0.18", "fixture banner", "fps=18", "noise="} {
+		if !strings.Contains(filter, need) {
+			t.Fatalf("1+6 fixture missing %q\n%s", need, filter)
+		}
 	}
 }

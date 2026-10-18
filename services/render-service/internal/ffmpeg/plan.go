@@ -78,11 +78,22 @@ const (
 	FrameRate    = 30
 	// Act3PosterizeFPS is Style Profile life-on-film-v1 hold rate (no timeline stretch).
 	Act3PosterizeFPS = 18
+	// Super 8 gate inset on the 1080×1920 canvas (ADR / Style Profile life-on-film-v1).
+	Super8GateWidth  = 980
+	Super8GateHeight = 1306
+	// Act3CanvasPadColor is the letterbox behind the Super 8 gate.
+	Act3CanvasPadColor = "0x0A0A0A"
+	// FlashFrames is white-flash duration (ADR 0021).
+	FlashFrames = 3
+	// JCutEditAudioVolume is Edit Audio level during J-cut pre-roll (ADR 0019).
+	JCutEditAudioVolume = 0.18
 	// StyleProfileLifeOnFilmV1 is the MVP Style Profile id (ADR 0013).
 	// Mirrors songpick.StyleProfileID / packages/contracts/mvp-constants.json.
 	StyleProfileLifeOnFilmV1 = "life-on-film-v1"
 	// MsPerFrame at Canvas FrameRate (30fps → ~33.333ms); used for ±1 frame chorus-drop snap.
 	MsPerFrame = 1000.0 / float64(FrameRate)
+	// Clean916SlateColor is the voice-only Reflection slate (Film Grain dark).
+	Clean916SlateColor = "0x12100E"
 )
 
 // Caption is one Cut caption cue burned in Act 1 (no Whisper in render).
@@ -149,9 +160,11 @@ type Plan struct {
 	StyleProfileID string
 	// OverlayPath optional Style Profile film-gate / burn PNG (system media).
 	OverlayPath string
-	Clips       []ClipInput
-	Captions    []Caption
-	Markers     []Marker
+	// ReflectionQuestion is Act 1 prompt banner text from the render job (ADR 0020); not on Cut clips.
+	ReflectionQuestion string
+	Clips              []ClipInput
+	Captions           []Caption
+	Markers            []Marker
 }
 
 // DurationMs returns endMs - startMs.
@@ -210,7 +223,7 @@ func (p Plan) Validate() error {
 		if c.AssetID == "" {
 			return fmt.Errorf("clip[%d]: missing assetId", i)
 		}
-		if c.LocalPath == "" {
+		if c.LocalPath == "" && !c.isClean916Slate() {
 			return fmt.Errorf("clip[%d] asset %s: missing local path", i, c.AssetID)
 		}
 		switch c.Type {
@@ -313,4 +326,59 @@ func SnapMsToFrame(ms int) int {
 	}
 	frame := int(float64(ms)/MsPerFrame + 0.5)
 	return int(float64(frame)*MsPerFrame + 0.5)
+}
+
+// isClean916Slate is voice-only Reflection picture: clean_916 with no file (ADR 0020).
+func (c ClipInput) isClean916Slate() bool {
+	return c.Role == RoleReflection && c.VisualStyle == VisualClean916 &&
+		c.Type == AssetPhoto && c.LocalPath == "" && c.MotionPreset == ""
+}
+
+// usesAct3Look reports whether Style Profile Act 3 look applies (all act=3; hero_outro fallback).
+func (c ClipInput) usesAct3Look() bool {
+	if c.Act == ActHero {
+		return true
+	}
+	return c.Act == 0 && c.Role == RoleHeroOutro
+}
+
+// Act1PictureEndMs is the timeline end of Act 1 picture (Reflection / act=1 clips).
+func (p Plan) Act1PictureEndMs() int {
+	end := 0
+	timeline := 0
+	found := false
+	for _, c := range p.PictureClips() {
+		dur := c.DurationMs()
+		isAct1 := c.Act == ActReflection || (c.Act == 0 && c.Role == RoleReflection)
+		if isAct1 {
+			end = timeline + dur
+			found = true
+		} else if found {
+			break
+		}
+		timeline += dur
+	}
+	if found {
+		return end
+	}
+	return 0
+}
+
+// JCutStartMs returns when Edit Audio J-cut pre-roll begins (marker or Act1End − pre-roll).
+func (p Plan) JCutStartMs() int {
+	act1End := p.Act1PictureEndMs()
+	for _, m := range p.Markers {
+		if m.Type == MarkerJCut {
+			return SnapMsToFrame(m.AtMs)
+		}
+	}
+	if act1End <= 0 {
+		return 0
+	}
+	preRollMs := int(songpick.JCutPreRollSec * 1000)
+	start := act1End - preRollMs
+	if start < 0 {
+		start = 0
+	}
+	return SnapMsToFrame(start)
 }
