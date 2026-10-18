@@ -5,17 +5,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/doanbenson/momentos/services/render-service/internal/songpick"
 )
 
 // buildFilterComplex produces one filter_complex graph for picture + audio.
 //
 // Picture: Motion Preset / Visual Style from Cut → 1080x1920@30 → concat hard-cuts.
 // Act 1: Reflection question banner + Cut captions via drawtext; clean_916 slate for voice-only.
-// Act 2: coalesced 3-frame flash + SFX; J-cut Edit Audio volume envelope.
-// Act 3: Super 8 gate / Kodak / grain / 18fps on all act=3 clips.
-// Audio: Edit Audio bed + VO adelay + sidechain ducking stub.
+// Act 2: coalesced short white flash + SFX, time-shifted onto the cut.
+// Act 3: Super 8 gate / Kodak / grain / 18fps on all act=3 clips; still holds, hard cuts.
+// Audio: Edit Audio silent through Act 1, then a fade-in that lasts the picture.
 func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string, err error) {
 	pics := plan.PictureClips()
 	voices := plan.VoiceClips()
@@ -77,14 +75,14 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 	}
 	filterSoFar := b.String()
 	agentDbg("H2", "graph.go:buildFilterComplex:layout", "picture layout + scale audit", map[string]any{
-		"pictureCount":       len(built),
-		"act3Count":          act3N,
-		"sharedAct3Pass":     act3N > 0 && !act3Interleaved(built),
-		"filterLen":          b.Len(),
-		"scaleSegments":      scaleSegments(filterSoFar),
-		"hasCropT":           strings.Contains(filterSoFar, "sin(2*PI*t"),
-		"hasAct1Overscan":    strings.Contains(filterSoFar, fmt.Sprintf("scale=%d:%d", Act1OverscanWidth, Act1OverscanHeight)),
-		"hasAct3Overscan":    strings.Contains(filterSoFar, fmt.Sprintf("scale=%d:%d", Act3DriftOverscanWidth, Act3DriftOverscanHeight)),
+		"pictureCount":    len(built),
+		"act3Count":       act3N,
+		"sharedAct3Pass":  act3N > 0 && !act3Interleaved(built),
+		"filterLen":       b.Len(),
+		"scaleSegments":   scaleSegments(filterSoFar),
+		"hasCropT":        strings.Contains(filterSoFar, "sin(2*PI*t"),
+		"hasAct1Overscan": strings.Contains(filterSoFar, fmt.Sprintf("scale=%d:%d", Act1OverscanWidth, Act1OverscanHeight)),
+		"hasAct3Overscan": strings.Contains(filterSoFar, fmt.Sprintf("scale=%d:%d", Act3DriftOverscanWidth, Act3DriftOverscanHeight)),
 	})
 	// #endregion
 
@@ -105,38 +103,33 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 	fmt.Fprintf(&b, "[%s]copy[vout];", videoSrc)
 
 	totalSec := msToSec(plan.PictureDurationMs())
-	jCutStart := plan.JCutStartMs()
 	act1End := plan.Act1PictureEndMs()
-	// Full Edit Audio energy at chorus_drop (or Act1 end + drop_offset) — ADR 0019.
-	energyMs := chorusDropMs(plan)
-	if energyMs < act1End {
-		energyMs = act1End
-	}
+	fadeStart := msToSec(act1End)
 
-	// Edit Audio bed with J-cut volume envelope (ADR 0019).
+	// Edit Audio stays on the song clock (t=0) so drafted cuts stay on the beat.
+	// Loudness is silent until Act 1 picture ends, then fades to full.
+	// apad holds the bed to the picture timeline when the file is shorter,
+	// so a short stem cannot end the Render.
 	fmt.Fprintf(&b,
 		"[%d:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"+
-			"atrim=0:%s,asetpts=PTS-STARTPTS,"+
-			"volume='if(lt(t\\,%s)\\,0\\,if(lt(t\\,%s)\\,%g\\,1))'[bed];",
-		editIdx, totalSec,
-		msToSec(jCutStart), msToSec(energyMs), JCutEditAudioVolume,
+			"atrim=0:%s,apad=whole_dur=%s,asetpts=PTS-STARTPTS,"+
+			"volume='if(lt(t\\,%s)\\,0\\,1)',afade=t=in:st=%s:d=%.3f[bed];",
+		editIdx, totalSec, totalSec,
+		fadeStart, fadeStart, MusicFadeInSec,
 	)
 
 	voAndSFX := make([]string, 0, len(voices)+len(sfxMarkers)+len(pics))
 	// Act 1: Reflection talking-head video contributes VO from its audio stream.
+	// Delay is the concat clock (sum of prior picture timeline durations).
+	// atrim uses the source-file window, the same range as the picture trim.
 	timelineMs := 0
 	refVO := 0
 	for i, c := range pics {
 		if c.Role == RoleReflection && c.Type == AssetVideo && !c.isClean916Slate() {
 			label := fmt.Sprintf("refvo%d", refVO)
 			refVO++
-			durSec := msToSec(c.DurationMs())
 			inIdx := pictureFileIndex(pics, i)
-			fmt.Fprintf(&b,
-				"[%d:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"+
-					"atrim=0:%s,asetpts=PTS-STARTPTS,adelay=%d|%d[%s];",
-				inIdx, durSec, timelineMs, timelineMs, label,
-			)
+			appendTrimmedAudio(&b, inIdx, label, c, timelineMs)
 			voAndSFX = append(voAndSFX, "["+label+"]")
 		}
 		timelineMs += c.DurationMs()
@@ -144,12 +137,8 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 	for i, c := range voices {
 		inIdx := len(filePics) + i
 		label := fmt.Sprintf("vo%d", i)
-		durSec := msToSec(c.DurationMs())
-		fmt.Fprintf(&b,
-			"[%d:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"+
-				"atrim=0:%s,asetpts=PTS-STARTPTS,adelay=%d|%d[%s];",
-			inIdx, durSec, c.StartMs, c.StartMs, label,
-		)
+		// Timeline StartMs delays the clip onto the output. It is not a file seek.
+		appendTrimmedAudio(&b, inIdx, label, c, c.StartMs)
 		voAndSFX = append(voAndSFX, "["+label+"]")
 	}
 	for i, m := range sfxMarkers {
@@ -184,10 +173,11 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 			strings.Join(voAndSFX, ""), len(voAndSFX), voMix)
 	}
 
+	// duration=longest keeps the bed after Reflection voice ends.
+	// sidechaincompress is not used: it stops when the voice stream ends.
 	fmt.Fprintf(&b,
-		"[bed][%s]sidechaincompress=threshold=0.05:ratio=8:attack=50:release=300:makeup=1[ducked];"+
-			"[ducked][%s]amix=inputs=2:duration=first:dropout_transition=0[aout]",
-		voMix, voMix,
+		"[bed][%s]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[aout]",
+		voMix,
 	)
 
 	return b.String(), "vout", "aout", nil
@@ -239,36 +229,17 @@ func appendPhotoClip(b *strings.Builder, inIdx int, label string, c ClipInput, f
 	}
 }
 
-// appendAct3PhotoMotion: static overscan scale → loop → fixed-size crop weave.
+// appendAct3PhotoMotion holds a still, centered in the film-print gate.
 // Output stays at gate size; appendAct3Style grades + pads onto the canvas.
-// Never put t/n/pos in scale= (init eval_mode rejects them; eval=frame breaks concat size).
-func appendAct3PhotoMotion(b *strings.Builder, inIdx int, label string, c ClipInput, frames int) {
+// No crop weave — hard cuts only. Never put t/n/pos in scale=.
+func appendAct3PhotoMotion(b *strings.Builder, inIdx int, label string, _ ClipInput, frames int) {
 	gateW, gateH := Super8GateWidth, Super8GateHeight
-	if c.MotionPreset == MotionNativeActionCrop {
-		fmt.Fprintf(b,
-			"[%d:v]scale=%d:%d:force_original_aspect_ratio=increase,"+
-				"crop=%d:%d,setsar=1,format=yuv420p,"+
-				"loop=loop=%d:size=1:start=0,setpts=N/%d/TB,fps=%d[%s];",
-			inIdx, gateW, gateH, gateW, gateH,
-			frames, FrameRate, FrameRate, label,
-		)
-		return
-	}
-	// Loop before crop so t advances per held frame; crop w/h stay constant.
-	xOff, yOff := "6*sin(2*PI*t*1.5)", "5*cos(2*PI*t*1.1)"
-	if c.MotionPreset == MotionWhipPunchIn {
-		// One-frame punch via larger first-frame offset; then settle into weave.
-		xOff = "if(lt(t\\,0.04)\\,18\\,6*sin(2*PI*t*1.5))"
-		yOff = "if(lt(t\\,0.04)\\,14\\,5*cos(2*PI*t*1.1))"
-	}
 	fmt.Fprintf(b,
 		"[%d:v]scale=%d:%d:force_original_aspect_ratio=increase,"+
-			"setsar=1,format=yuv420p,"+
-			"loop=loop=%d:size=1:start=0,setpts=N/%d/TB,fps=%d,"+
-			"crop=w=%d:h=%d:x='(iw-%d)/2+%s':y='(ih-%d)/2+%s'[%s];",
-		inIdx, Act3DriftOverscanWidth, Act3DriftOverscanHeight,
-		frames, FrameRate, FrameRate,
-		gateW, gateH, gateW, xOff, gateH, yOff, label,
+			"crop=%d:%d,setsar=1,format=yuv420p,"+
+			"loop=loop=%d:size=1:start=0,setpts=N/%d/TB,fps=%d[%s];",
+		inIdx, gateW, gateH, gateW, gateH,
+		frames, FrameRate, FrameRate, label,
 	)
 }
 
@@ -365,15 +336,17 @@ func act3Interleaved(built []picLabel) bool {
 }
 
 func appendVideoClip(b *strings.Builder, inIdx int, label string, c ClipInput) {
-	startSec := msToSec(c.StartMs)
-	endSec := msToSec(c.EndMs)
+	srcIn, srcOut := c.sourceWindowMs()
+	startSec := msToSec(srcIn)
+	endSec := msToSec(srcOut)
 	aspect := "decrease"
 	padColor := "black"
 	if c.usesAct3Look() {
 		padColor = Act3CanvasPadColor
 	}
 	motion := c.MotionPreset
-	if motion == MotionNativeActionCrop || motion == "" {
+	// Act 3 videos are still holds under the shared film look. No drift zoompan.
+	if c.usesAct3Look() || motion == MotionNativeActionCrop || motion == "" {
 		fmt.Fprintf(b,
 			"[%d:v]trim=start=%s:end=%s,setpts=PTS-STARTPTS,fps=%d,"+
 				"scale=%d:%d:force_original_aspect_ratio=%s,"+
@@ -415,6 +388,17 @@ func appendVideoClip(b *strings.Builder, inIdx int, label string, c ClipInput) {
 			frames, CanvasWidth, CanvasHeight, FrameRate, label,
 		)
 	}
+}
+
+// appendTrimmedAudio reads the source-file window, resets PTS, then delays
+// onto the output clock. delayMs is a timeline placement, never a file seek.
+func appendTrimmedAudio(b *strings.Builder, inIdx int, label string, c ClipInput, delayMs int) {
+	srcIn, srcOut := c.sourceWindowMs()
+	fmt.Fprintf(b,
+		"[%d:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"+
+			"atrim=start=%s:end=%s,asetpts=PTS-STARTPTS,adelay=%d|%d[%s];",
+		inIdx, msToSec(srcIn), msToSec(srcOut), delayMs, delayMs, label,
+	)
 }
 
 // appendAct3Style applies @lifeonfilm.27 vintage look on Act 3 clips:
@@ -557,6 +541,11 @@ func coalesceFlashEvents(plan Plan) []flashEvent {
 		}
 		timeline += c.DurationMs()
 	}
+	// Guarantee a short white flash on the Reflection → slideshow cut.
+	// An existing marker or transitionIn at that timestamp wins (keeps its path).
+	if end := plan.Act1PictureEndMs(); end > 0 {
+		add(end, "")
+	}
 	out := make([]flashEvent, 0, len(order))
 	for _, at := range order {
 		out = append(out, byAt[at])
@@ -590,20 +579,24 @@ func appendFlashOverlays(b *strings.Builder, inLabel string, events []flashEvent
 			fileIdx++
 			src := fmt.Sprintf("flashsrc%d", flashIdx-1)
 			flashFrames := msToFrames(flashDur)
+			// Fade on the clip's own clock, then shift those frames onto the cut.
+			// Without the shift, the fade finishes at t=0 and overlay repeats a clear frame.
 			fmt.Fprintf(b,
 				"[%d:v]scale=%d:%d,format=yuva420p,"+
 					"loop=loop=%d:size=1:start=0,setpts=N/%d/TB,"+
-					"fade=t=out:st=0:d=%s:alpha=1[%s];"+
-					"[%s][%s]overlay=0:0:enable='between(t\\,%s\\,%s)'[%s];",
+					"fade=t=out:st=0:d=%s:alpha=1,setpts=PTS+%s/TB[%s];"+
+					"[%s][%s]overlay=0:0:eof_action=pass:enable='between(t\\,%s\\,%s)'[%s];",
 				inIdx, CanvasWidth, CanvasHeight,
-				flashFrames, FrameRate, msToSec(flashDur), src,
+				flashFrames, FrameRate, msToSec(flashDur), start, src,
 				cur, src, start, end, next,
 			)
 		} else {
 			fmt.Fprintf(b,
-				"color=c=white:s=%dx%d:d=%s[flashsrc%d];"+
-					"[%s][flashsrc%d]overlay=0:0:enable='between(t\\,%s\\,%s)'[%s];",
-				CanvasWidth, CanvasHeight, msToSec(flashDur), flashIdx-1,
+				"color=c=white:s=%dx%d:d=%s,format=yuva420p,"+
+					"fade=t=out:st=0:d=%s:alpha=1,setpts=PTS+%s/TB[flashsrc%d];"+
+					"[%s][flashsrc%d]overlay=0:0:eof_action=pass:enable='between(t\\,%s\\,%s)'[%s];",
+				CanvasWidth, CanvasHeight, msToSec(flashDur),
+				msToSec(flashDur), start, flashIdx-1,
 				cur, flashIdx-1, start, end, next,
 			)
 		}
@@ -644,19 +637,6 @@ func pictureFileIndex(pics []ClipInput, pictureOrd int) int {
 		}
 	}
 	return idx
-}
-
-func chorusDropMs(plan Plan) int {
-	for _, m := range plan.Markers {
-		if m.Type == MarkerChorusDrop {
-			return SnapMsToFrame(m.AtMs)
-		}
-	}
-	act1 := plan.Act1PictureEndMs()
-	if act1 <= 0 {
-		return 0
-	}
-	return SnapMsToFrame(act1 + int(songpick.DropOffsetAfterSpeechSec*1000))
 }
 
 func escapeDrawtext(s string) string {

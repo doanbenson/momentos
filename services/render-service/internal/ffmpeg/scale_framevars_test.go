@@ -50,10 +50,11 @@ func TestBuildFilterComplex_ScaleFiltersRejectFrameVars(t *testing.T) {
 	if !strings.Contains(filter, fmt.Sprintf("scale=%d:%d", Act1OverscanWidth, Act1OverscanHeight)) {
 		t.Fatalf("act1 must use static overscan scale %d:%d", Act1OverscanWidth, Act1OverscanHeight)
 	}
-	if !strings.Contains(filter, fmt.Sprintf("scale=%d:%d", Act3DriftOverscanWidth, Act3DriftOverscanHeight)) {
-		t.Fatalf("act3 drift must use static overscan scale %d:%d", Act3DriftOverscanWidth, Act3DriftOverscanHeight)
+	gate := fmt.Sprintf("crop=%d:%d", Super8GateWidth, Super8GateHeight)
+	if !strings.Contains(filter, gate) {
+		t.Fatal("act3 photo must static-crop to the gate")
 	}
-	if !strings.Contains(filter, "sin(2*PI*t") {
-		t.Fatal("act3 drift must put t in crop, not scale")
+	if strings.Contains(filter, "sin(2*PI*t") {
+		t.Fatal("act3 hold must not put t in the crop")
 	}
 }

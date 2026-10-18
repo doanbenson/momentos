@@ -124,15 +124,15 @@ func (r *Runner) Render(plan Plan, outPath string) error {
 		}
 	}
 	agentDbg("H1", "runner.go:Render:pre-exec", "ffmpeg filter scale audit", map[string]any{
-		"goos":              runtime.GOOS,
-		"bin":               r.bin(),
-		"scaleCount":        len(segs),
-		"scaleSegments":     segs,
+		"goos":               runtime.GOOS,
+		"bin":                r.bin(),
+		"scaleCount":         len(segs),
+		"scaleSegments":      segs,
 		"frameVarScaleCount": frameVarScale,
-		"hasCropT":          strings.Contains(filter, "sin(2*PI*t"),
-		"hasZoompan":        strings.Contains(filter, "zoompan="),
-		"hasAct1Overscan":   strings.Contains(filter, fmt.Sprintf("scale=%d:%d", Act1OverscanWidth, Act1OverscanHeight)),
-		"hasAct3Overscan":   strings.Contains(filter, fmt.Sprintf("scale=%d:%d", Act3DriftOverscanWidth, Act3DriftOverscanHeight)),
+		"hasCropT":           strings.Contains(filter, "sin(2*PI*t"),
+		"hasZoompan":         strings.Contains(filter, "zoompan="),
+		"hasAct1Overscan":    strings.Contains(filter, fmt.Sprintf("scale=%d:%d", Act1OverscanWidth, Act1OverscanHeight)),
+		"hasAct3Overscan":    strings.Contains(filter, fmt.Sprintf("scale=%d:%d", Act3DriftOverscanWidth, Act3DriftOverscanHeight)),
 	})
 	// #endregion
 
@@ -152,21 +152,20 @@ func (r *Runner) Render(plan Plan, outPath string) error {
 		"-c:a", "aac",
 		"-b:a", "192k",
 		"-movflags", "+faststart",
-		"-shortest",
 		outPath,
 	)
 	// #region agent log
 	joinedArgs := strings.Join(args, " ")
 	agentDbg("G", "runner.go:Render:args", "ffmpeg invoke sizing", map[string]any{
-		"pictureCount":   len(plan.PictureClips()),
-		"clipCount":      len(plan.Clips),
-		"filterLen":      len(filter),
-		"fps18Count":     strings.Count(filter, "fps=18"),
+		"pictureCount":    len(plan.PictureClips()),
+		"clipCount":       len(plan.Clips),
+		"filterLen":       len(filter),
+		"fps18Count":      strings.Count(filter, "fps=18"),
 		"loopFilterCount": strings.Count(filter, "loop=loop="),
-		"hasInputLoop1":  strings.Contains(joinedArgs, "-loop 1"),
-		"hasAcopy":       strings.Contains(filter, "acopy["),
-		"hasFontfile":    strings.Contains(filter, "fontfile="),
-		"filterThreads":  strings.Contains(joinedArgs, "-filter_threads 1"),
+		"hasInputLoop1":   strings.Contains(joinedArgs, "-loop 1"),
+		"hasAcopy":        strings.Contains(filter, "acopy["),
+		"hasFontfile":     strings.Contains(filter, "fontfile="),
+		"filterThreads":   strings.Contains(joinedArgs, "-filter_threads 1"),
 	})
 	// #endregion
 
@@ -193,12 +192,12 @@ func (r *Runner) Render(plan Plan, outPath string) error {
 		}
 		// #region agent log
 		agentDbg("H1", "runner.go:Render:ffmpeg-fail", "ffmpeg encode failed", map[string]any{
-			"exit":             exit,
-			"stderrHead":       truncate(msg, 512),
-			"parsedScaleInit":  strings.Contains(msg, "Parsed_scale") && strings.Contains(msg, "init eval_mode"),
-			"hasFontconfig":    strings.Contains(msg, "Fontconfig"),
+			"exit":               exit,
+			"stderrHead":         truncate(msg, 512),
+			"parsedScaleInit":    strings.Contains(msg, "Parsed_scale") && strings.Contains(msg, "init eval_mode"),
+			"hasFontconfig":      strings.Contains(msg, "Fontconfig"),
 			"frameVarScaleCount": frameVarScale,
-			"goos":             runtime.GOOS,
+			"goos":               runtime.GOOS,
 		})
 		// #endregion
 		return fmt.Errorf("ffmpeg exit %d: %s", exit, truncate(msg, 2<<10))
@@ -236,6 +235,8 @@ type CutWireClip struct {
 	MotionPreset MotionPreset `json:"motionPreset,omitempty"`
 	VisualStyle  VisualStyle  `json:"visualStyle"`
 	TransitionIn TransitionIn `json:"transitionIn"`
+	SourceInMs   int          `json:"sourceInMs,omitempty"`
+	SourceOutMs  int          `json:"sourceOutMs,omitempty"`
 }
 
 type AssetLocal struct {
@@ -284,6 +285,8 @@ func planFromWire(w CutWire) (Plan, error) {
 			MotionPreset: c.MotionPreset,
 			VisualStyle:  c.VisualStyle,
 			TransitionIn: c.TransitionIn,
+			SourceInMs:   c.SourceInMs,
+			SourceOutMs:  c.SourceOutMs,
 		})
 	}
 	return p, nil

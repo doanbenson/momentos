@@ -39,10 +39,10 @@ const (
 type MotionPreset string
 
 const (
-	MotionHookSlowPush         MotionPreset = "hook_slow_push"
-	MotionWhipPunchIn          MotionPreset = "whip_punch_in"
-	MotionHandheldSuper8Drift  MotionPreset = "handheld_super8_drift"
-	MotionNativeActionCrop     MotionPreset = "native_action_crop"
+	MotionHookSlowPush        MotionPreset = "hook_slow_push"
+	MotionWhipPunchIn         MotionPreset = "whip_punch_in"
+	MotionHandheldSuper8Drift MotionPreset = "handheld_super8_drift"
+	MotionNativeActionCrop    MotionPreset = "native_action_crop"
 )
 
 // VisualStyle mirrors OpenAPI CutVisualStyle.
@@ -91,9 +91,12 @@ const (
 	Act3DriftOverscanHeight = 1334
 	// Act3CanvasPadColor is the warm-black letterbox behind the film print.
 	Act3CanvasPadColor = "0x0C0B0A"
-	// FlashFrames is white-flash duration (ADR 0021).
-	FlashFrames = 3
-	// JCutEditAudioVolume is Edit Audio level during J-cut pre-roll (ADR 0019).
+	// FlashFrames is the short white flash on a cut (~5 frames, ~170ms).
+	FlashFrames = 5
+	// MusicFadeInSec is the Edit Audio ramp to full level after Act 1 picture ends.
+	MusicFadeInSec = 0.8
+	// JCutEditAudioVolume is the legacy J-cut pre-roll level (ADR 0019).
+	// The Render mix no longer uses it; Edit Audio fades in after Act 1.
 	JCutEditAudioVolume = 0.18
 	// StyleProfileLifeOnFilmV1 is the MVP Style Profile id (ADR 0013).
 	// Mirrors songpick.StyleProfileID / packages/contracts/mvp-constants.json.
@@ -157,6 +160,12 @@ type ClipInput struct {
 	MotionPreset MotionPreset `json:"motionPreset,omitempty"`
 	VisualStyle  VisualStyle  `json:"visualStyle"`
 	TransitionIn TransitionIn `json:"transitionIn"`
+	// SourceInMs is the inclusive offset into the source file.
+	// Missing or 0 means the start of the file. Timeline StartMs is not a file seek.
+	SourceInMs int `json:"sourceInMs,omitempty"`
+	// SourceOutMs is the exclusive end offset in the source file.
+	// When SourceOutMs > SourceInMs, the file window is that range.
+	SourceOutMs int `json:"sourceOutMs,omitempty"`
 }
 
 // Plan is the typed encode input. Built by business after downloads.
@@ -175,9 +184,24 @@ type Plan struct {
 	Markers            []Marker
 }
 
-// DurationMs returns endMs - startMs.
+// DurationMs returns the timeline length endMs - startMs.
+// It is not a file seek. File trim uses sourceWindowMs.
 func (c ClipInput) DurationMs() int {
 	return c.EndMs - c.StartMs
+}
+
+// sourceWindowMs is the inclusive-exclusive range to read from the source file.
+// SourceOutMs > SourceInMs selects that range. Otherwise the window is the
+// start of the file for DurationMs. Timeline StartMs is never the file seek.
+func (c ClipInput) sourceWindowMs() (startMs, endMs int) {
+	if c.SourceOutMs > c.SourceInMs {
+		return c.SourceInMs, c.SourceOutMs
+	}
+	dur := c.DurationMs()
+	if dur < 0 {
+		dur = 0
+	}
+	return 0, dur
 }
 
 // PictureClips returns photo/video clips sorted by order.

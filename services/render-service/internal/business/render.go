@@ -187,6 +187,8 @@ func (s *Service) buildPlan(job *database.Job, scratch string) (ffmpeg.Plan, err
 				MotionPreset: c.MotionPreset,
 				VisualStyle:  c.VisualStyle,
 				TransitionIn: c.TransitionIn,
+				SourceInMs:   c.SourceInMs,
+				SourceOutMs:  c.SourceOutMs,
 			})
 		}
 	} else {
@@ -204,16 +206,16 @@ func (s *Service) buildPlan(job *database.Job, scratch string) (ffmpeg.Plan, err
 	}
 
 	plan := ffmpeg.Plan{
-		MomentID:             job.MomentID,
-		CutID:                job.CutID,
-		CutVersion:           job.CutVersion,
-		EditAudioPath:        editPath,
-		StyleProfileID:       styleProfileID,
-		OverlayPath:          overlayPath,
-		ReflectionQuestion:   job.ReflectionQuestion,
-		Clips:                clips,
-		Captions:             captions,
-		Markers:              markers,
+		MomentID:           job.MomentID,
+		CutID:              job.CutID,
+		CutVersion:         job.CutVersion,
+		EditAudioPath:      editPath,
+		StyleProfileID:     styleProfileID,
+		OverlayPath:        overlayPath,
+		ReflectionQuestion: job.ReflectionQuestion,
+		Clips:              clips,
+		Captions:           captions,
+		Markers:            markers,
 	}
 	if err := plan.Validate(); err != nil {
 		return ffmpeg.Plan{}, Terminal("%s", err.Error())
@@ -326,6 +328,8 @@ type cutClip struct {
 	MotionPreset ffmpeg.MotionPreset `json:"motionPreset,omitempty"`
 	VisualStyle  ffmpeg.VisualStyle  `json:"visualStyle"`
 	TransitionIn ffmpeg.TransitionIn `json:"transitionIn"`
+	SourceInMs   int                 `json:"sourceInMs,omitempty"`
+	SourceOutMs  int                 `json:"sourceOutMs,omitempty"`
 }
 
 type cutJSON struct {
