@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS moments (
     status              TEXT NOT NULL CHECK (status IN ('intake', 'drafting', 'rendering', 'ready', 'failed')),
     song_pick_id        TEXT NOT NULL,
     asset_ids           UUID[] NOT NULL DEFAULT '{}',
+    reflection_asset_id UUID,
+    reflection_question TEXT,
     cut_id              UUID,
     render_storage_key  TEXT,
     error_code          TEXT,
@@ -25,6 +27,8 @@ CREATE TABLE IF NOT EXISTS cuts (
     version         INT NOT NULL DEFAULT 1,
     song_pick_id    TEXT NOT NULL,
     clips           JSONB NOT NULL DEFAULT '[]'::jsonb,
+    captions        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    markers         JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

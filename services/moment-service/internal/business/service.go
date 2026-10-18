@@ -66,23 +66,27 @@ func NewService(store *database.Store, mediaClient *media.Client) *Service {
 }
 
 type CreateMomentInput struct {
-	Principal      string
-	AssetIDs       []uuid.UUID
-	SongPickID     string
-	IdempotencyKey string
-	RawBody        []byte
+	Principal          string
+	AssetIDs           []uuid.UUID
+	ReflectionAssetID  uuid.UUID
+	ReflectionQuestion string
+	SongPickID         string
+	IdempotencyKey     string
+	RawBody            []byte
 }
 
 type MomentDTO struct {
-	ID               uuid.UUID             `json:"id"`
-	Status           database.MomentStatus `json:"status"`
-	SongPick         SongPickDTO           `json:"songPick"`
-	AssetIDs         []uuid.UUID           `json:"assetIds"`
-	CutID            *uuid.UUID            `json:"cutId,omitempty"`
-	RenderStorageKey *string               `json:"renderStorageKey,omitempty"`
-	RenderURL        *string               `json:"renderUrl,omitempty"`
-	ErrorCode        *string               `json:"errorCode,omitempty"`
-	ErrorMessage     *string               `json:"errorMessage,omitempty"`
+	ID                 uuid.UUID             `json:"id"`
+	Status             database.MomentStatus `json:"status"`
+	SongPick           SongPickDTO           `json:"songPick"`
+	AssetIDs           []uuid.UUID           `json:"assetIds"`
+	ReflectionAssetID  *uuid.UUID            `json:"reflectionAssetId,omitempty"`
+	ReflectionQuestion *string               `json:"reflectionQuestion,omitempty"`
+	CutID              *uuid.UUID            `json:"cutId,omitempty"`
+	RenderStorageKey   *string               `json:"renderStorageKey,omitempty"`
+	RenderURL          *string               `json:"renderUrl,omitempty"`
+	ErrorCode          *string               `json:"errorCode,omitempty"`
+	ErrorMessage       *string               `json:"errorMessage,omitempty"`
 }
 
 type SongPickDTO struct {
@@ -97,6 +101,8 @@ type CutDTO struct {
 	Version    int             `json:"version"`
 	SongPickID string          `json:"songPickId,omitempty"`
 	Clips      json.RawMessage `json:"clips"`
+	Captions   json.RawMessage `json:"captions,omitempty"`
+	Markers    json.RawMessage `json:"markers,omitempty"`
 }
 
 type ClipDTO struct {
@@ -104,6 +110,7 @@ type ClipDTO struct {
 	Order   int       `json:"order"`
 	StartMs *int      `json:"startMs,omitempty"`
 	EndMs   *int      `json:"endMs,omitempty"`
+	Role    string    `json:"role,omitempty"`
 }
 
 type EditorPatch struct {
@@ -118,7 +125,7 @@ type EditorPatch struct {
 }
 
 func (s *Service) toMomentDTO(m *database.Moment) MomentDTO {
-	return MomentDTO{
+	dto := MomentDTO{
 		ID:     m.ID,
 		Status: m.Status,
 		SongPick: SongPickDTO{
@@ -131,6 +138,13 @@ func (s *Service) toMomentDTO(m *database.Moment) MomentDTO {
 		ErrorCode:        m.ErrorCode,
 		ErrorMessage:     m.ErrorMessage,
 	}
+	if m.ReflectionAssetID != nil {
+		dto.ReflectionAssetID = m.ReflectionAssetID
+	}
+	if m.ReflectionQuestion != nil && *m.ReflectionQuestion != "" {
+		dto.ReflectionQuestion = m.ReflectionQuestion
+	}
+	return dto
 }
 
 func (s *Service) songTitle(id string) string {
@@ -151,6 +165,8 @@ func (s *Service) toCutDTO(c *database.Cut) CutDTO {
 		Version:    c.Version,
 		SongPickID: c.SongPickID,
 		Clips:      clips,
+		Captions:   c.Captions,
+		Markers:    c.Markers,
 	}
 }
 
@@ -160,6 +176,9 @@ func (s *Service) CreateMoment(ctx context.Context, in CreateMomentInput) (*Mome
 	}
 	if len(in.AssetIDs) == 0 || len(in.AssetIDs) > 10 {
 		return nil, fmt.Errorf("%w: assetIds must be 1..10", ErrInvalid)
+	}
+	if err := ValidateCreateMomentContract(in); err != nil {
+		return nil, err
 	}
 	songPickID := in.SongPickID
 	if songPickID == "" {
@@ -188,6 +207,9 @@ func (s *Service) CreateMoment(ctx context.Context, in CreateMomentInput) (*Mome
 	if err := s.validateAssetsReady(ctx, in.Principal, in.AssetIDs); err != nil {
 		return nil, err
 	}
+	if err := s.validateReflectionAsset(ctx, in.Principal, in.ReflectionAssetID); err != nil {
+		return nil, err
+	}
 
 	momentID := uuid.New()
 	jobID := uuid.New()
@@ -196,14 +218,20 @@ func (s *Service) CreateMoment(ctx context.Context, in CreateMomentInput) (*Mome
 	if err != nil {
 		return nil, err
 	}
+	payload.ReflectionAssetID = in.ReflectionAssetID
+	payload.ReflectionQuestion = in.ReflectionQuestion
 	payloadBytes, _ := json.Marshal(payload)
 
+	rq := in.ReflectionQuestion
+	ra := in.ReflectionAssetID
 	m := &database.Moment{
-		ID:         momentID,
-		UserID:     in.Principal,
-		Status:     database.StatusDrafting,
-		SongPickID: songPickID,
-		AssetIDs:   in.AssetIDs,
+		ID:                 momentID,
+		UserID:             in.Principal,
+		Status:             database.StatusDrafting,
+		SongPickID:         songPickID,
+		AssetIDs:           in.AssetIDs,
+		ReflectionAssetID:  &ra,
+		ReflectionQuestion: &rq,
 	}
 	job := &database.Job{
 		ID:       jobID,
@@ -403,6 +431,20 @@ func (s *Service) validateAssetsReady(ctx context.Context, principal string, ids
 		}
 	}
 	return nil
+}
+
+func (s *Service) validateReflectionAsset(ctx context.Context, principal string, reflectionID uuid.UUID) error {
+	if s.SkipMedia || s.Media == nil || s.Media.BaseURL == "" {
+		return nil
+	}
+	assets, err := s.Media.GetAssets(ctx, principal, []uuid.UUID{reflectionID})
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrUpstream, err)
+	}
+	if len(assets) == 0 {
+		return fmt.Errorf("%w: reflection asset %s not found", ErrInvalid, reflectionID)
+	}
+	return validateReflectionAssetType(assets[0].Type)
 }
 
 func hashBody(b []byte) string {

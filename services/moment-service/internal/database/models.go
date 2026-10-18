@@ -35,17 +35,19 @@ const (
 )
 
 type Moment struct {
-	ID               uuid.UUID
-	UserID           string
-	Status           MomentStatus
-	SongPickID       string
-	AssetIDs         []uuid.UUID
-	CutID            *uuid.UUID
-	RenderStorageKey *string
-	ErrorCode        *string
-	ErrorMessage     *string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                 uuid.UUID
+	UserID             string
+	Status             MomentStatus
+	SongPickID         string
+	AssetIDs           []uuid.UUID
+	ReflectionAssetID  *uuid.UUID
+	ReflectionQuestion *string
+	CutID              *uuid.UUID
+	RenderStorageKey   *string
+	ErrorCode          *string
+	ErrorMessage       *string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type Cut struct {
@@ -54,6 +56,8 @@ type Cut struct {
 	Version    int
 	SongPickID string
 	Clips      json.RawMessage
+	Captions   json.RawMessage
+	Markers    json.RawMessage
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }

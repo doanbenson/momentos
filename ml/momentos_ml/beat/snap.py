@@ -81,12 +81,17 @@ def snap_to_grid(
                         "too short for any positive window"
                     )
 
+        role = "montage"
+        if feat and feat.type == "voice" and order == 0:
+            # Stub path: first voice Asset is Reflection until Track C director assigns roles.
+            role = "reflection"
         clips.append(
             CutClip(
                 assetId=p.asset_id,
                 order=order,
                 startMs=start_ms,
                 endMs=end_ms,
+                role=role,
             )
         )
 
@@ -99,6 +104,17 @@ def snap_to_grid(
                 f"clip order {c.order}: startMs {c.start_ms} before prior {prev_start}"
             )
         prev_start = c.start_ms
+
+    # Contract: every Cut for this slice needs a hero_outro (stub path until Track C director).
+    if clips and not any(c.role == "hero_outro" for c in clips):
+        last = clips[-1]
+        clips[-1] = CutClip(
+            assetId=last.asset_id,
+            order=last.order,
+            startMs=last.start_ms,
+            endMs=last.end_ms,
+            role="hero_outro",
+        )
 
     return clips
 

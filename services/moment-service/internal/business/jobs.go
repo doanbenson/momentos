@@ -12,15 +12,17 @@ import (
 )
 
 type CutDraftPayload struct {
-	JobType      string           `json:"jobType"`
-	JobID        uuid.UUID        `json:"jobId"`
-	MomentID     uuid.UUID        `json:"momentId"`
-	SongPickID   string           `json:"songPickId"`
-	EditAudioURL string           `json:"editAudioUrl,omitempty"`
-	Mode         string           `json:"mode"`
-	Assets       []JobAsset       `json:"assets"`
-	PriorCut     *CutDTO          `json:"priorCut"`
-	EditorPatch  *EditorPatch     `json:"editorPatch"`
+	JobType            string       `json:"jobType"`
+	JobID              uuid.UUID    `json:"jobId"`
+	MomentID           uuid.UUID    `json:"momentId"`
+	SongPickID         string       `json:"songPickId"`
+	EditAudioURL       string       `json:"editAudioUrl,omitempty"`
+	Mode               string       `json:"mode"`
+	Assets             []JobAsset   `json:"assets"`
+	ReflectionAssetID  uuid.UUID    `json:"reflectionAssetId,omitempty"`
+	ReflectionQuestion string       `json:"reflectionQuestion,omitempty"`
+	PriorCut           *CutDTO      `json:"priorCut"`
+	EditorPatch        *EditorPatch `json:"editorPatch"`
 }
 
 type JobAsset struct {
@@ -323,10 +325,17 @@ func (s *Service) CompleteJob(ctx context.Context, jobID uuid.UUID, req Complete
 
 func (s *Service) completeCutDraft(ctx context.Context, job *database.Job, m *database.Moment, req CompleteRequest) error {
 	clips := req.Clips
+	var captions, markers json.RawMessage
 	songPickID := req.SongPickID
 	if req.Cut != nil {
 		if len(req.Cut.Clips) > 0 {
 			clips = req.Cut.Clips
+		}
+		if len(req.Cut.Captions) > 0 {
+			captions = req.Cut.Captions
+		}
+		if len(req.Cut.Markers) > 0 {
+			markers = req.Cut.Markers
 		}
 		if req.Cut.SongPickID != "" {
 			songPickID = req.Cut.SongPickID
@@ -339,7 +348,7 @@ func (s *Service) completeCutDraft(ctx context.Context, job *database.Job, m *da
 		songPickID = m.SongPickID
 	}
 
-	cut, err := s.Store.UpsertCut(ctx, m.ID, songPickID, clips)
+	cut, err := s.Store.UpsertCut(ctx, m.ID, songPickID, clips, captions, markers)
 	if err != nil {
 		return err
 	}

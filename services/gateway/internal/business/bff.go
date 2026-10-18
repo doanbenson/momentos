@@ -40,15 +40,17 @@ func NewBFF(momentURL, mediaURL, renderURL, internalToken string) *BFF {
 }
 
 type MomentLean struct {
-	ID               uuid.UUID   `json:"id"`
-	Status           string      `json:"status"`
-	SongPick         SongPick    `json:"songPick"`
-	AssetIDs         []uuid.UUID `json:"assetIds"`
-	CutID            *uuid.UUID  `json:"cutId,omitempty"`
-	RenderStorageKey *string     `json:"renderStorageKey,omitempty"`
-	RenderURL        *string     `json:"renderUrl,omitempty"`
-	ErrorCode        *string     `json:"errorCode,omitempty"`
-	ErrorMessage     *string     `json:"errorMessage,omitempty"`
+	ID                 uuid.UUID   `json:"id"`
+	Status             string      `json:"status"`
+	SongPick           SongPick    `json:"songPick"`
+	AssetIDs           []uuid.UUID `json:"assetIds"`
+	ReflectionAssetID  *uuid.UUID  `json:"reflectionAssetId,omitempty"`
+	ReflectionQuestion *string     `json:"reflectionQuestion,omitempty"`
+	CutID              *uuid.UUID  `json:"cutId,omitempty"`
+	RenderStorageKey   *string     `json:"renderStorageKey,omitempty"`
+	RenderURL          *string     `json:"renderUrl,omitempty"`
+	ErrorCode          *string     `json:"errorCode,omitempty"`
+	ErrorMessage       *string     `json:"errorMessage,omitempty"`
 }
 
 type SongPick struct {
@@ -63,6 +65,8 @@ type Cut struct {
 	Version    int             `json:"version"`
 	SongPickID string          `json:"songPickId,omitempty"`
 	Clips      json.RawMessage `json:"clips"`
+	Captions   json.RawMessage `json:"captions,omitempty"`
+	Markers    json.RawMessage `json:"markers,omitempty"`
 }
 
 type AssetSummary struct {
@@ -74,16 +78,18 @@ type AssetSummary struct {
 
 // MomentAggregate is the BFF GET shape (OpenAPI Moment + optional nesteds).
 type MomentAggregate struct {
-	ID        uuid.UUID      `json:"id"`
-	Status    string         `json:"status"`
-	SongPick  SongPick       `json:"songPick"`
-	AssetIDs  []uuid.UUID    `json:"assetIds"`
-	Assets    []AssetSummary `json:"assets,omitempty"`
-	CutID     *uuid.UUID     `json:"cutId,omitempty"`
-	Cut       *Cut           `json:"cut,omitempty"`
-	RenderURL *string        `json:"renderUrl,omitempty"`
-	ErrorCode    *string     `json:"errorCode,omitempty"`
-	ErrorMessage *string     `json:"errorMessage,omitempty"`
+	ID                 uuid.UUID      `json:"id"`
+	Status             string         `json:"status"`
+	SongPick           SongPick       `json:"songPick"`
+	AssetIDs           []uuid.UUID    `json:"assetIds"`
+	ReflectionAssetID  *uuid.UUID     `json:"reflectionAssetId,omitempty"`
+	ReflectionQuestion *string        `json:"reflectionQuestion,omitempty"`
+	Assets             []AssetSummary `json:"assets,omitempty"`
+	CutID              *uuid.UUID     `json:"cutId,omitempty"`
+	Cut                *Cut           `json:"cut,omitempty"`
+	RenderURL          *string        `json:"renderUrl,omitempty"`
+	ErrorCode          *string        `json:"errorCode,omitempty"`
+	ErrorMessage       *string        `json:"errorMessage,omitempty"`
 }
 
 func (b *BFF) ProxyCreateMoment(ctx context.Context, principal string, body []byte, idemKey string) (int, []byte, error) {
@@ -118,14 +124,16 @@ func (b *BFF) GetMomentAggregate(ctx context.Context, principal, momentID string
 	}
 
 	agg := &MomentAggregate{
-		ID:           lean.ID,
-		Status:       lean.Status,
-		SongPick:     lean.SongPick,
-		AssetIDs:     lean.AssetIDs,
-		CutID:        lean.CutID,
-		RenderURL:    lean.RenderURL,
-		ErrorCode:    lean.ErrorCode,
-		ErrorMessage: lean.ErrorMessage,
+		ID:                 lean.ID,
+		Status:             lean.Status,
+		SongPick:           lean.SongPick,
+		AssetIDs:           lean.AssetIDs,
+		ReflectionAssetID:  lean.ReflectionAssetID,
+		ReflectionQuestion: lean.ReflectionQuestion,
+		CutID:              lean.CutID,
+		RenderURL:          lean.RenderURL,
+		ErrorCode:          lean.ErrorCode,
+		ErrorMessage:       lean.ErrorMessage,
 	}
 	if agg.SongPick.Title == "" {
 		agg.SongPick.Title = b.SongPickTitle

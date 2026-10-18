@@ -6,7 +6,7 @@ Song Pick / Edit Audio mirrors:
 ml does not invent a second Song catalog — use momentos_ml.config.MVP_SONG_PICK_ID.
 """
 
-MVP_STYLE_PROFILE_ID = "life-on-film-v0"
+MVP_STYLE_PROFILE_ID = "life-on-film-v1"
 MVP_VIBE_ID = "live-a-life-remember-v0"
 
 MVP_STYLE = {

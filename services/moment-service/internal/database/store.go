@@ -45,25 +45,28 @@ func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
 func (s *Store) InsertMoment(ctx context.Context, m *Moment) error {
 	const q = `
-INSERT INTO moments (id, user_id, status, song_pick_id, asset_ids, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, now(), now())
+INSERT INTO moments (
+  id, user_id, status, song_pick_id, asset_ids, reflection_asset_id, reflection_question, created_at, updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
 RETURNING created_at, updated_at`
-	return s.pool.QueryRow(ctx, q, m.ID, m.UserID, m.Status, m.SongPickID, m.AssetIDs).
-		Scan(&m.CreatedAt, &m.UpdatedAt)
+	return s.pool.QueryRow(ctx, q,
+		m.ID, m.UserID, m.Status, m.SongPickID, m.AssetIDs, m.ReflectionAssetID, m.ReflectionQuestion,
+	).Scan(&m.CreatedAt, &m.UpdatedAt)
 }
 
 func (s *Store) GetMoment(ctx context.Context, id uuid.UUID) (*Moment, error) {
 	const q = `
-SELECT id, user_id, status, song_pick_id, asset_ids, cut_id, render_storage_key,
-       error_code, error_message, created_at, updated_at
+SELECT id, user_id, status, song_pick_id, asset_ids, reflection_asset_id, reflection_question,
+       cut_id, render_storage_key, error_code, error_message, created_at, updated_at
 FROM moments WHERE id = $1`
 	return scanMoment(s.pool.QueryRow(ctx, q, id))
 }
 
 func (s *Store) GetMomentForUser(ctx context.Context, id uuid.UUID, userID string) (*Moment, error) {
 	const q = `
-SELECT id, user_id, status, song_pick_id, asset_ids, cut_id, render_storage_key,
-       error_code, error_message, created_at, updated_at
+SELECT id, user_id, status, song_pick_id, asset_ids, reflection_asset_id, reflection_question,
+       cut_id, render_storage_key, error_code, error_message, created_at, updated_at
 FROM moments WHERE id = $1 AND user_id = $2`
 	m, err := scanMoment(s.pool.QueryRow(ctx, q, id, userID))
 	if err != nil {
@@ -139,8 +142,9 @@ type scannable interface {
 func scanMoment(row scannable) (*Moment, error) {
 	var m Moment
 	err := row.Scan(
-		&m.ID, &m.UserID, &m.Status, &m.SongPickID, &m.AssetIDs, &m.CutID,
-		&m.RenderStorageKey, &m.ErrorCode, &m.ErrorMessage, &m.CreatedAt, &m.UpdatedAt,
+		&m.ID, &m.UserID, &m.Status, &m.SongPickID, &m.AssetIDs,
+		&m.ReflectionAssetID, &m.ReflectionQuestion,
+		&m.CutID, &m.RenderStorageKey, &m.ErrorCode, &m.ErrorMessage, &m.CreatedAt, &m.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -155,12 +159,21 @@ func scanMoment(row scannable) (*Moment, error) {
 
 func (s *Store) GetCutByMoment(ctx context.Context, momentID uuid.UUID) (*Cut, error) {
 	const q = `
-SELECT id, moment_id, version, song_pick_id, clips, created_at, updated_at
+SELECT id, moment_id, version, song_pick_id, clips, captions, markers, created_at, updated_at
 FROM cuts WHERE moment_id = $1`
 	return scanCut(s.pool.QueryRow(ctx, q, momentID))
 }
 
-func (s *Store) UpsertCut(ctx context.Context, momentID uuid.UUID, songPickID string, clips json.RawMessage) (*Cut, error) {
+func (s *Store) UpsertCut(ctx context.Context, momentID uuid.UUID, songPickID string, clips, captions, markers json.RawMessage) (*Cut, error) {
+	if len(clips) == 0 {
+		clips = json.RawMessage("[]")
+	}
+	if len(captions) == 0 {
+		captions = json.RawMessage("[]")
+	}
+	if len(markers) == 0 {
+		markers = json.RawMessage("[]")
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -178,12 +191,14 @@ func (s *Store) UpsertCut(ctx context.Context, momentID uuid.UUID, songPickID st
 			Version:    1,
 			SongPickID: songPickID,
 			Clips:      clips,
+			Captions:   captions,
+			Markers:    markers,
 		}
 		const ins = `
-INSERT INTO cuts (id, moment_id, version, song_pick_id, clips, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, now(), now())
+INSERT INTO cuts (id, moment_id, version, song_pick_id, clips, captions, markers, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
 RETURNING created_at, updated_at`
-		if err := tx.QueryRow(ctx, ins, c.ID, c.MomentID, c.Version, c.SongPickID, c.Clips).
+		if err := tx.QueryRow(ctx, ins, c.ID, c.MomentID, c.Version, c.SongPickID, c.Clips, c.Captions, c.Markers).
 			Scan(&c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, err
 		}
@@ -202,13 +217,15 @@ RETURNING created_at, updated_at`
 		Version:    version + 1,
 		SongPickID: songPickID,
 		Clips:      clips,
+		Captions:   captions,
+		Markers:    markers,
 	}
 	const upd = `
 UPDATE cuts
-SET version = $2, song_pick_id = $3, clips = $4, updated_at = now()
+SET version = $2, song_pick_id = $3, clips = $4, captions = $5, markers = $6, updated_at = now()
 WHERE id = $1
 RETURNING created_at, updated_at`
-	if err := tx.QueryRow(ctx, upd, c.ID, c.Version, c.SongPickID, c.Clips).
+	if err := tx.QueryRow(ctx, upd, c.ID, c.Version, c.SongPickID, c.Clips, c.Captions, c.Markers).
 		Scan(&c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -220,7 +237,10 @@ RETURNING created_at, updated_at`
 
 func scanCut(row scannable) (*Cut, error) {
 	var c Cut
-	err := row.Scan(&c.ID, &c.MomentID, &c.Version, &c.SongPickID, &c.Clips, &c.CreatedAt, &c.UpdatedAt)
+	err := row.Scan(
+		&c.ID, &c.MomentID, &c.Version, &c.SongPickID, &c.Clips, &c.Captions, &c.Markers,
+		&c.CreatedAt, &c.UpdatedAt,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -229,6 +249,12 @@ func scanCut(row scannable) (*Cut, error) {
 	}
 	if c.Clips == nil {
 		c.Clips = json.RawMessage("[]")
+	}
+	if c.Captions == nil {
+		c.Captions = json.RawMessage("[]")
+	}
+	if c.Markers == nil {
+		c.Markers = json.RawMessage("[]")
 	}
 	return &c, nil
 }
@@ -398,11 +424,14 @@ func (s *Store) CreateMomentWithJob(ctx context.Context, m *Moment, job *Job, id
 	defer tx.Rollback(ctx)
 
 	const insM = `
-INSERT INTO moments (id, user_id, status, song_pick_id, asset_ids, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, now(), now())
+INSERT INTO moments (
+  id, user_id, status, song_pick_id, asset_ids, reflection_asset_id, reflection_question, created_at, updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
 RETURNING created_at, updated_at`
-	if err := tx.QueryRow(ctx, insM, m.ID, m.UserID, m.Status, m.SongPickID, m.AssetIDs).
-		Scan(&m.CreatedAt, &m.UpdatedAt); err != nil {
+	if err := tx.QueryRow(ctx, insM,
+		m.ID, m.UserID, m.Status, m.SongPickID, m.AssetIDs, m.ReflectionAssetID, m.ReflectionQuestion,
+	).Scan(&m.CreatedAt, &m.UpdatedAt); err != nil {
 		return err
 	}
 

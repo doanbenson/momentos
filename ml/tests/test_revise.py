@@ -15,9 +15,9 @@ def test_remove_and_reorder():
         "version": 1,
         "songPickId": "live-a-life-you-will-remember",
         "clips": [
-            {"assetId": "a", "order": 0, "startMs": 0, "endMs": 500},
-            {"assetId": "b", "order": 1, "startMs": 500, "endMs": 1000},
-            {"assetId": "c", "order": 2, "startMs": 1000, "endMs": 1500},
+            {"assetId": "a", "order": 0, "startMs": 0, "endMs": 500, "role": "montage"},
+            {"assetId": "b", "order": 1, "startMs": 500, "endMs": 1000, "role": "montage"},
+            {"assetId": "c", "order": 2, "startMs": 1000, "endMs": 1500, "role": "hero_outro"},
         ],
     }
     patch = EditorPatch.model_validate(

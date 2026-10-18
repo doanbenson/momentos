@@ -23,19 +23,23 @@ func (h *Handler) createMoment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		AssetIDs   []uuid.UUID `json:"assetIds"`
-		SongPickID string      `json:"songPickId"`
+		AssetIDs           []uuid.UUID `json:"assetIds"`
+		ReflectionAssetID  uuid.UUID   `json:"reflectionAssetId"`
+		ReflectionQuestion string      `json:"reflectionQuestion"`
+		SongPickID         string      `json:"songPickId"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	dto, err := h.Svc.CreateMoment(r.Context(), business.CreateMomentInput{
-		Principal:      principalFrom(r.Context()),
-		AssetIDs:       body.AssetIDs,
-		SongPickID:     body.SongPickID,
-		IdempotencyKey: r.Header.Get("Idempotency-Key"),
-		RawBody:        raw,
+		Principal:          principalFrom(r.Context()),
+		AssetIDs:           body.AssetIDs,
+		ReflectionAssetID:  body.ReflectionAssetID,
+		ReflectionQuestion: body.ReflectionQuestion,
+		SongPickID:         body.SongPickID,
+		IdempotencyKey:     r.Header.Get("Idempotency-Key"),
+		RawBody:            raw,
 	})
 	if err != nil {
 		mapErr(w, err)

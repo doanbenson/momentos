@@ -1,9 +1,10 @@
 openapi: 3.1.0
 info:
   title: Momentos API
-  version: 0.0.2
+  version: 0.0.3
   description: |
     MVP contracts — Moment, Cut, Asset, Song Pick, jobs.
+    Cut is the sole persisted edit plan (no master_timeline).
 
     **Auth (mobile → gateway):** `Authorization: Bearer <supabase_access_token>`.
     Gateway verifies JWT, overwrites `X-Momentos-Principal` with `sub`, and calls
@@ -298,7 +299,7 @@ components:
           type: integer
     CreateMomentRequest:
       type: object
-      required: [assetIds]
+      required: [assetIds, reflectionAssetId, reflectionQuestion]
       properties:
         assetIds:
           type: array
@@ -307,6 +308,14 @@ components:
           items:
             type: string
             format: uuid
+        reflectionAssetId:
+          type: string
+          format: uuid
+          description: Asset used as the Reflection (must be one of assetIds; voice or talking-head video)
+        reflectionQuestion:
+          type: string
+          minLength: 1
+          description: Prompt the user answered in their Reflection
         songPickId:
           type: string
           default: live-a-life-you-will-remember
@@ -327,6 +336,11 @@ components:
           items:
             type: string
             format: uuid
+        reflectionAssetId:
+          type: string
+          format: uuid
+        reflectionQuestion:
+          type: string
         assets:
           type: array
           description: BFF-only enrichment (gateway GET)
@@ -348,9 +362,40 @@ components:
           type: string
         errorMessage:
           type: string
+    CutClipRole:
+      type: string
+      enum: [reflection, montage, hero_outro]
+    CutCaption:
+      type: object
+      required: [text, startMs, endMs]
+      properties:
+        text:
+          type: string
+        startMs:
+          type: integer
+        endMs:
+          type: integer
+    CutMarkerType:
+      type: string
+      enum: [j_cut, chorus_drop, flash, sfx]
+    CutMarker:
+      type: object
+      required: [type, atMs]
+      properties:
+        type:
+          $ref: "#/components/schemas/CutMarkerType"
+        atMs:
+          type: integer
+        payload:
+          type: object
+          additionalProperties: true
+          description: Optional marker-specific data (e.g. system media id)
     Cut:
       type: object
       required: [id, momentId, version, clips]
+      description: |
+        Sole persisted edit plan. Must include at least one clip with role hero_outro
+        on a legal 4-beat span for this product slice. No master_timeline field.
       properties:
         id:
           type: string
@@ -366,7 +411,7 @@ components:
           type: array
           items:
             type: object
-            required: [assetId, order]
+            required: [assetId, order, role]
             properties:
               assetId:
                 type: string
@@ -377,6 +422,16 @@ components:
                 type: integer
               endMs:
                 type: integer
+              role:
+                $ref: "#/components/schemas/CutClipRole"
+        captions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CutCaption"
+        markers:
+          type: array
+          items:
+            $ref: "#/components/schemas/CutMarker"
     EditorPatch:
       type: object
       properties:

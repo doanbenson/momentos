@@ -20,15 +20,34 @@ export type Moment = {
   status: MomentStatus;
   songPick: SongPick;
   assetIds: string[];
+  reflectionAssetId?: string;
+  reflectionQuestion?: string;
   cutId?: string;
   renderUrl?: string;
 };
+
+export type CutClipRole = "reflection" | "montage" | "hero_outro";
 
 export type CutClip = {
   assetId: string;
   order: number;
   startMs?: number;
   endMs?: number;
+  role: CutClipRole;
+};
+
+export type CutCaption = {
+  text: string;
+  startMs: number;
+  endMs: number;
+};
+
+export type CutMarkerType = "j_cut" | "chorus_drop" | "flash" | "sfx";
+
+export type CutMarker = {
+  type: CutMarkerType;
+  atMs: number;
+  payload?: Record<string, unknown>;
 };
 
 export type Cut = {
@@ -37,6 +56,8 @@ export type Cut = {
   version: number;
   songPickId?: string;
   clips: CutClip[];
+  captions?: CutCaption[];
+  markers?: CutMarker[];
 };
 
 export type EditorPatch = {
@@ -49,5 +70,7 @@ export type EditorPatch = {
 
 export type CreateMomentRequest = {
   assetIds: string[];
+  reflectionAssetId: string;
+  reflectionQuestion: string;
   songPickId?: string;
 };
