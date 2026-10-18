@@ -54,3 +54,10 @@ def test_constants_match_contracts_parity_file():
     assert sp.HERO_OUTRO_SPAN_BEATS == expected["heroOutroSpanBeats"]
     assert sp.PHOTO_HOLD_BEATS == expected["photoHoldBeats"]
     assert sp.CHORUS_DROP_BEAT_INDEX == expected["chorusDropBeatIndex"]
+    assert sp.J_CUT_PRE_ROLL_SEC == expected["jCutPreRollSec"]
+    assert sp.DROP_OFFSET_AFTER_SPEECH_SEC == expected["dropOffsetAfterSpeechSec"]
+
+
+def test_j_cut_and_drop_timing_constants():
+    assert sp.J_CUT_PRE_ROLL_SEC == 4.0
+    assert sp.DROP_OFFSET_AFTER_SPEECH_SEC == 0.25

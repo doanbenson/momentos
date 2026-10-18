@@ -106,11 +106,15 @@ type CutDTO struct {
 }
 
 type ClipDTO struct {
-	AssetID uuid.UUID `json:"assetId"`
-	Order   int       `json:"order"`
-	StartMs *int      `json:"startMs,omitempty"`
-	EndMs   *int      `json:"endMs,omitempty"`
-	Role    string    `json:"role,omitempty"`
+	AssetID      uuid.UUID `json:"assetId"`
+	Order        int       `json:"order"`
+	StartMs      *int      `json:"startMs,omitempty"`
+	EndMs        *int      `json:"endMs,omitempty"`
+	Role         string    `json:"role,omitempty"`
+	Act          *int      `json:"act,omitempty"`
+	MotionPreset *string   `json:"motionPreset,omitempty"`
+	VisualStyle  *string   `json:"visualStyle,omitempty"`
+	TransitionIn *string   `json:"transitionIn,omitempty"`
 }
 
 type EditorPatch struct {
@@ -173,9 +177,6 @@ func (s *Service) toCutDTO(c *database.Cut) CutDTO {
 func (s *Service) CreateMoment(ctx context.Context, in CreateMomentInput) (*MomentDTO, error) {
 	if in.Principal == "" {
 		return nil, ErrUnauthorized
-	}
-	if len(in.AssetIDs) == 0 || len(in.AssetIDs) > 10 {
-		return nil, fmt.Errorf("%w: assetIds must be 1..10", ErrInvalid)
 	}
 	if err := ValidateCreateMomentContract(in); err != nil {
 		return nil, err

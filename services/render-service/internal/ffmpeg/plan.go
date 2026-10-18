@@ -26,6 +26,42 @@ const (
 	RoleHeroOutro  ClipRole = "hero_outro"
 )
 
+// ClipAct mirrors OpenAPI CutClipAct.
+type ClipAct int
+
+const (
+	ActReflection ClipAct = 1
+	ActMontage    ClipAct = 2
+	ActHero       ClipAct = 3
+)
+
+// MotionPreset mirrors OpenAPI CutMotionPreset.
+type MotionPreset string
+
+const (
+	MotionHookSlowPush         MotionPreset = "hook_slow_push"
+	MotionWhipPunchIn          MotionPreset = "whip_punch_in"
+	MotionHandheldSuper8Drift  MotionPreset = "handheld_super8_drift"
+	MotionNativeActionCrop     MotionPreset = "native_action_crop"
+)
+
+// VisualStyle mirrors OpenAPI CutVisualStyle.
+type VisualStyle string
+
+const (
+	VisualClean916   VisualStyle = "clean_916"
+	VisualSuper8Gate VisualStyle = "super8_gate"
+)
+
+// TransitionIn mirrors OpenAPI CutTransitionIn.
+type TransitionIn string
+
+const (
+	TransitionNone       TransitionIn = "none"
+	TransitionHardCut    TransitionIn = "hard_cut"
+	TransitionWhiteFlash TransitionIn = "white_flash"
+)
+
 // MarkerType mirrors OpenAPI CutMarkerType.
 type MarkerType string
 
@@ -91,13 +127,17 @@ func (m *Marker) UnmarshalJSON(data []byte) error {
 
 // ClipInput is one Cut clip resolved to a local file for encode.
 type ClipInput struct {
-	AssetID   string
-	Order     int
-	StartMs   int
-	EndMs     int
-	Type      AssetType
-	LocalPath string
-	Role      ClipRole
+	AssetID      string
+	Order        int
+	StartMs      int
+	EndMs        int
+	Type         AssetType
+	LocalPath    string
+	Role         ClipRole
+	Act          ClipAct      `json:"act"`
+	MotionPreset MotionPreset `json:"motionPreset,omitempty"`
+	VisualStyle  VisualStyle  `json:"visualStyle"`
+	TransitionIn TransitionIn `json:"transitionIn"`
 }
 
 // Plan is the typed encode input. Built by business after downloads.

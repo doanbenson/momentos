@@ -10,11 +10,55 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from momentos_ml.styles.song_pick import HERO_OUTRO_SPAN_BEATS, NOMINAL_BPM
 
 CutClipRole = Literal["reflection", "montage", "hero_outro"]
+CutClipAct = Literal[1, 2, 3]
+CutMotionPreset = Literal[
+    "hook_slow_push",
+    "whip_punch_in",
+    "handheld_super8_drift",
+    "native_action_crop",
+]
+CutVisualStyle = Literal["clean_916", "super8_gate"]
+CutTransitionIn = Literal["none", "hard_cut", "white_flash"]
 CutMarkerType = Literal["j_cut", "chorus_drop", "flash", "sfx"]
 
 # ±½ beat tolerance at nominal BPM for snapped hero_outro duration.
 _HERO_TOLERANCE_MS = int(0.5 * (60_000 / NOMINAL_BPM))
 _HERO_EXPECTED_MS = int(round(HERO_OUTRO_SPAN_BEATS * (60_000 / NOMINAL_BPM)))
+
+
+class ClipFieldDefaults(BaseModel):
+    """Role→Act / Motion Preset / Visual Style / transitionIn defaults (ADR 0020 / 0015)."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    act: CutClipAct
+    motion_preset: CutMotionPreset | None = Field(default=None, alias="motionPreset")
+    visual_style: CutVisualStyle = Field(alias="visualStyle")
+    transition_in: CutTransitionIn = Field(alias="transitionIn")
+
+
+def clip_field_defaults_for_role(role: CutClipRole) -> ClipFieldDefaults:
+    """Stub/director defaults when planner omits Act/Motion/Visual fields. Planner may override."""
+    if role == "reflection":
+        return ClipFieldDefaults(
+            act=1,
+            motionPreset=None,
+            visualStyle="clean_916",
+            transitionIn="none",
+        )
+    if role == "hero_outro":
+        return ClipFieldDefaults(
+            act=3,
+            motionPreset="handheld_super8_drift",
+            visualStyle="super8_gate",
+            transitionIn="hard_cut",
+        )
+    return ClipFieldDefaults(
+        act=2,
+        motionPreset="hook_slow_push",
+        visualStyle="clean_916",
+        transitionIn="hard_cut",
+    )
 
 
 class CutClip(BaseModel):
@@ -25,6 +69,10 @@ class CutClip(BaseModel):
     start_ms: int | None = Field(default=None, alias="startMs")
     end_ms: int | None = Field(default=None, alias="endMs")
     role: CutClipRole
+    act: CutClipAct
+    motion_preset: CutMotionPreset | None = Field(default=None, alias="motionPreset")
+    visual_style: CutVisualStyle = Field(alias="visualStyle")
+    transition_in: CutTransitionIn = Field(alias="transitionIn")
 
     @model_validator(mode="after")
     def _window_ok(self) -> CutClip:

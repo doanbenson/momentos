@@ -12,7 +12,8 @@ export type IntakeAsset = {
   assetId?: string;
 };
 
-export const MAX_INTAKE_ASSETS = 10;
+/** Mirrors CreateMomentRequest.assetIds maxItems (ADR 0016). */
+export const MAX_INTAKE_ASSETS = 20;
 export const MIN_INTAKE_ASSETS = 1;
 
 export function canBeReflection(type: AssetType): boolean {

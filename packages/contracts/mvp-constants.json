@@ -8,6 +8,8 @@
   "heroOutroSpanBeats": 4,
   "photoHoldBeats": 2,
   "chorusDropBeatIndex": 96,
+  "jCutPreRollSec": 4.0,
+  "dropOffsetAfterSpeechSec": 0.25,
   "systemMedia": {
     "styleProfileRelativeRoot": "life-on-film-v1",
     "storageKeyPrefix": "system/style-profiles/life-on-film-v1",

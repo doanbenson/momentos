@@ -41,15 +41,17 @@ func TestConstantsMatchContractsParityFile(t *testing.T) {
 		t.Fatalf("read parity file: %v", err)
 	}
 	var expected struct {
-		SongPickID           string `json:"songPickId"`
-		SongPickTitle        string `json:"songPickTitle"`
-		StyleProfileID       string `json:"styleProfileId"`
-		VibeID               string `json:"vibeId"`
-		NominalBPM           int    `json:"nominalBpm"`
-		LegalSpanBeats       []int  `json:"legalSpanBeats"`
-		HeroOutroSpanBeats   int    `json:"heroOutroSpanBeats"`
-		PhotoHoldBeats       int    `json:"photoHoldBeats"`
-		ChorusDropBeatIndex  int    `json:"chorusDropBeatIndex"`
+		SongPickID                string  `json:"songPickId"`
+		SongPickTitle             string  `json:"songPickTitle"`
+		StyleProfileID            string  `json:"styleProfileId"`
+		VibeID                    string  `json:"vibeId"`
+		NominalBPM                int     `json:"nominalBpm"`
+		LegalSpanBeats            []int   `json:"legalSpanBeats"`
+		HeroOutroSpanBeats        int     `json:"heroOutroSpanBeats"`
+		PhotoHoldBeats            int     `json:"photoHoldBeats"`
+		ChorusDropBeatIndex       int     `json:"chorusDropBeatIndex"`
+		JCutPreRollSec            float64 `json:"jCutPreRollSec"`
+		DropOffsetAfterSpeechSec  float64 `json:"dropOffsetAfterSpeechSec"`
 	}
 	if err := json.Unmarshal(raw, &expected); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -78,6 +80,12 @@ func TestConstantsMatchContractsParityFile(t *testing.T) {
 	if ChorusDropBeatIndex != expected.ChorusDropBeatIndex {
 		t.Fatalf("ChorusDropBeatIndex parity")
 	}
+	if JCutPreRollSec != expected.JCutPreRollSec {
+		t.Fatalf("JCutPreRollSec parity: got %v want %v", JCutPreRollSec, expected.JCutPreRollSec)
+	}
+	if DropOffsetAfterSpeechSec != expected.DropOffsetAfterSpeechSec {
+		t.Fatalf("DropOffsetAfterSpeechSec parity: got %v want %v", DropOffsetAfterSpeechSec, expected.DropOffsetAfterSpeechSec)
+	}
 	if len(LegalSpanBeats) != len(expected.LegalSpanBeats) {
 		t.Fatalf("LegalSpanBeats len parity")
 	}
@@ -85,5 +93,14 @@ func TestConstantsMatchContractsParityFile(t *testing.T) {
 		if LegalSpanBeats[i] != expected.LegalSpanBeats[i] {
 			t.Fatalf("LegalSpanBeats[%d] parity", i)
 		}
+	}
+}
+
+func TestJCutAndDropTimingConstants(t *testing.T) {
+	if JCutPreRollSec != 4.0 {
+		t.Fatalf("JCutPreRollSec = %v, want 4.0", JCutPreRollSec)
+	}
+	if DropOffsetAfterSpeechSec != 0.25 {
+		t.Fatalf("DropOffsetAfterSpeechSec = %v, want 0.25", DropOffsetAfterSpeechSec)
 	}
 }

@@ -35,6 +35,10 @@ PHOTO_HOLD_BEATS = _PHOTO_HOLD_BEATS
 # offline when the stem is available (not in git — ADR 0004).
 CHORUS_DROP_BEAT_INDEX = 96
 
+# J-cut / post-speech drop timing (ADR 0019). ml plans markers; render mixes.
+J_CUT_PRE_ROLL_SEC = 4.0
+DROP_OFFSET_AFTER_SPEECH_SEC = 0.25
+
 
 def is_legal_span_beats(span: int) -> bool:
     return span in LEGAL_SPAN_BEATS

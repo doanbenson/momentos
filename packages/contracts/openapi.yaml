@@ -1,10 +1,12 @@
 openapi: 3.1.0
 info:
   title: Momentos API
-  version: 0.0.3
+  version: 0.0.4
   description: |
     MVP contracts — Moment, Cut, Asset, Song Pick, jobs.
     Cut is the sole persisted edit plan (no master_timeline).
+    Render jobs carry Moment reflectionQuestion for the Act 1 prompt banner
+    (not duplicated onto Cut clips).
 
     **Auth (mobile → gateway):** `Authorization: Bearer <supabase_access_token>`.
     Gateway verifies JWT, overwrites `X-Momentos-Principal` with `sub`, and calls
@@ -303,11 +305,12 @@ components:
       properties:
         assetIds:
           type: array
-          maxItems: 10
+          maxItems: 20
           minItems: 1
           items:
             type: string
             format: uuid
+          description: Week Intake Assets including the Reflection (cap 20 total)
         reflectionAssetId:
           type: string
           format: uuid
@@ -365,6 +368,20 @@ components:
     CutClipRole:
       type: string
       enum: [reflection, montage, hero_outro]
+    CutClipAct:
+      type: integer
+      enum: [1, 2, 3]
+      description: Act segment (1 Reflection hook, 2 montage, 3 hero look)
+    CutMotionPreset:
+      type: string
+      enum: [hook_slow_push, whip_punch_in, handheld_super8_drift, native_action_crop]
+      description: Camera Motion Preset; required on picture clips; omit for voice-only Reflection slate
+    CutVisualStyle:
+      type: string
+      enum: [clean_916, super8_gate]
+    CutTransitionIn:
+      type: string
+      enum: [none, hard_cut, white_flash]
     CutCaption:
       type: object
       required: [text, startMs, endMs]
@@ -411,7 +428,7 @@ components:
           type: array
           items:
             type: object
-            required: [assetId, order, role]
+            required: [assetId, order, role, act, visualStyle, transitionIn]
             properties:
               assetId:
                 type: string
@@ -424,6 +441,14 @@ components:
                 type: integer
               role:
                 $ref: "#/components/schemas/CutClipRole"
+              act:
+                $ref: "#/components/schemas/CutClipAct"
+              motionPreset:
+                $ref: "#/components/schemas/CutMotionPreset"
+              visualStyle:
+                $ref: "#/components/schemas/CutVisualStyle"
+              transitionIn:
+                $ref: "#/components/schemas/CutTransitionIn"
         captions:
           type: array
           items:
@@ -489,6 +514,37 @@ components:
         renderUrl:
           type: string
           format: uri
+    RenderJobPayload:
+      type: object
+      description: |
+        moment-service → render-service job payload. Act 1 prompt banner text is
+        reflectionQuestion from the Moment (ADR 0020); not stored on Cut clips.
+      properties:
+        jobType:
+          type: string
+          enum: [render]
+        jobId:
+          type: string
+          format: uuid
+        momentId:
+          type: string
+          format: uuid
+        cutVersion:
+          type: integer
+        cut:
+          $ref: "#/components/schemas/Cut"
+        songPickId:
+          type: string
+        editAudioUrl:
+          type: string
+          format: uri
+        reflectionQuestion:
+          type: string
+          description: Act 1 prompt banner text from the Moment
+        assets:
+          type: array
+          items:
+            type: object
     Job:
       type: object
       required: [id, momentId, jobType, status, attempt, payload]
@@ -510,6 +566,9 @@ components:
         payload:
           type: object
           additionalProperties: true
+          description: |
+            cut-draft or render payload. For jobType=render, see RenderJobPayload
+            (includes reflectionQuestion for the Act 1 banner).
         cutVersion:
           type: integer
         claimedBy:

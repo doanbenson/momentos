@@ -2,6 +2,7 @@ package business
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -59,5 +60,43 @@ func TestCreateMomentContract_acceptsReflectionAndQuestion(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("want ok, got %v", err)
+	}
+}
+
+// Cap 20 = total assetIds including the Reflection (ADR 0016 / seam 3).
+
+func TestCreateMomentContract_acceptsTwentyAssetsIncludingReflection(t *testing.T) {
+	reflectionID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	ids := make([]uuid.UUID, 0, 20)
+	ids = append(ids, reflectionID)
+	for i := 0; i < 19; i++ {
+		ids = append(ids, uuid.MustParse(fmt.Sprintf("22222222-2222-2222-2222-%012d", i+1)))
+	}
+	err := ValidateCreateMomentContract(CreateMomentInput{
+		Principal:          "user-1",
+		AssetIDs:           ids,
+		ReflectionAssetID:  reflectionID,
+		ReflectionQuestion: "What made this week yours?",
+	})
+	if err != nil {
+		t.Fatalf("want ok for 20 Assets, got %v", err)
+	}
+}
+
+func TestCreateMomentContract_rejectsTwentyOneAssets(t *testing.T) {
+	reflectionID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	ids := make([]uuid.UUID, 0, 21)
+	ids = append(ids, reflectionID)
+	for i := 0; i < 20; i++ {
+		ids = append(ids, uuid.MustParse(fmt.Sprintf("22222222-2222-2222-2222-%012d", i+1)))
+	}
+	err := ValidateCreateMomentContract(CreateMomentInput{
+		Principal:          "user-1",
+		AssetIDs:           ids,
+		ReflectionAssetID:  reflectionID,
+		ReflectionQuestion: "What made this week yours?",
+	})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("want ErrInvalid for 21 Assets, got %v", err)
 	}
 }

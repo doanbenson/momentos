@@ -15,6 +15,9 @@ def _base_clips(*, with_hero: bool = True) -> list[CutClip]:
             startMs=0,
             endMs=2000,
             role="reflection",
+            act=1,
+            visualStyle="clean_916",
+            transitionIn="none",
         ),
         CutClip(
             assetId="22222222-2222-2222-2222-222222222222",
@@ -22,6 +25,10 @@ def _base_clips(*, with_hero: bool = True) -> list[CutClip]:
             startMs=2000,
             endMs=3000,
             role="montage",
+            act=2,
+            motionPreset="whip_punch_in",
+            visualStyle="clean_916",
+            transitionIn="white_flash",
         ),
     ]
     if with_hero:
@@ -32,6 +39,10 @@ def _base_clips(*, with_hero: bool = True) -> list[CutClip]:
                 startMs=3000,
                 endMs=4905,  # ~4 beats @ 126 BPM (1905ms)
                 role="hero_outro",
+                act=3,
+                motionPreset="handheld_super8_drift",
+                visualStyle="super8_gate",
+                transitionIn="hard_cut",
             )
         )
     return clips
@@ -70,6 +81,10 @@ def test_cut_rejects_short_hero_outro_span():
             startMs=3000,
             endMs=3500,  # ~1 beat — illegal for hero_outro
             role="hero_outro",
+            act=3,
+            motionPreset="handheld_super8_drift",
+            visualStyle="super8_gate",
+            transitionIn="hard_cut",
         )
     )
     with pytest.raises(ValidationError):
@@ -77,4 +92,44 @@ def test_cut_rejects_short_hero_outro_span():
             moment_id="44444444-4444-4444-4444-444444444444",
             song_pick_id="live-a-life-you-will-remember",
             clips=clips,
+        )
+
+
+def test_cut_accepts_act_motion_look_and_transition_in():
+    cut = build_cut(
+        moment_id="44444444-4444-4444-4444-444444444444",
+        song_pick_id="live-a-life-you-will-remember",
+        clips=_base_clips(),
+    )
+    validated = validate_cut(cut.model_dump(by_alias=True))
+    assert [c.act for c in validated.clips] == [1, 2, 3]
+    assert validated.clips[0].motion_preset is None
+    assert validated.clips[1].motion_preset == "whip_punch_in"
+    assert [c.visual_style for c in validated.clips] == [
+        "clean_916",
+        "clean_916",
+        "super8_gate",
+    ]
+    assert [c.transition_in for c in validated.clips] == [
+        "none",
+        "white_flash",
+        "hard_cut",
+    ]
+    dumped = cut.model_dump(by_alias=True)
+    assert "master_timeline" not in dumped
+    assert dumped["clips"][1]["motionPreset"] == "whip_punch_in"
+    assert dumped["clips"][2]["visualStyle"] == "super8_gate"
+
+
+def test_cut_rejects_missing_act():
+    with pytest.raises(ValidationError):
+        CutClip(
+            assetId="22222222-2222-2222-2222-222222222222",
+            order=0,
+            startMs=0,
+            endMs=1000,
+            role="montage",
+            motionPreset="hook_slow_push",
+            visualStyle="clean_916",
+            transitionIn="hard_cut",
         )

@@ -37,14 +37,15 @@ type JobAsset struct {
 }
 
 type RenderPayload struct {
-	JobType      string     `json:"jobType"`
-	JobID        uuid.UUID  `json:"jobId"`
-	MomentID     uuid.UUID  `json:"momentId"`
-	CutVersion   int        `json:"cutVersion"`
-	Cut          CutDTO     `json:"cut"`
-	SongPickID   string     `json:"songPickId"`
-	EditAudioURL string     `json:"editAudioUrl,omitempty"`
-	Assets       []JobAsset `json:"assets"`
+	JobType            string     `json:"jobType"`
+	JobID              uuid.UUID  `json:"jobId"`
+	MomentID           uuid.UUID  `json:"momentId"`
+	CutVersion         int        `json:"cutVersion"`
+	Cut                CutDTO     `json:"cut"`
+	SongPickID         string     `json:"songPickId"`
+	EditAudioURL       string     `json:"editAudioUrl,omitempty"`
+	ReflectionQuestion string     `json:"reflectionQuestion,omitempty"`
+	Assets             []JobAsset `json:"assets"`
 }
 
 type ClaimRequest struct {
@@ -250,15 +251,20 @@ func (s *Service) enqueueRender(ctx context.Context, principal string, m *databa
 		return err
 	}
 	cutDTO := s.toCutDTO(cut)
+	rq := ""
+	if m.ReflectionQuestion != nil {
+		rq = *m.ReflectionQuestion
+	}
 	payload := RenderPayload{
-		JobType:      string(database.JobRender),
-		JobID:        jobID,
-		MomentID:     m.ID,
-		CutVersion:   cut.Version,
-		Cut:          cutDTO,
-		SongPickID:   m.SongPickID,
-		EditAudioURL: editURL,
-		Assets:       assets,
+		JobType:            string(database.JobRender),
+		JobID:              jobID,
+		MomentID:           m.ID,
+		CutVersion:         cut.Version,
+		Cut:                cutDTO,
+		SongPickID:         m.SongPickID,
+		EditAudioURL:       editURL,
+		ReflectionQuestion: rq,
+		Assets:             assets,
 	}
 	b, _ := json.Marshal(payload)
 	cv := cut.Version

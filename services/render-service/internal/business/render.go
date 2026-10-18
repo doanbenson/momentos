@@ -176,13 +176,17 @@ func (s *Service) buildPlan(job *database.Job, scratch string) (ffmpeg.Plan, err
 				local = norm
 			}
 			clips = append(clips, ffmpeg.ClipInput{
-				AssetID:   c.AssetID,
-				Order:     c.Order,
-				StartMs:   c.StartMs,
-				EndMs:     c.EndMs,
-				Type:      assetType,
-				LocalPath: local,
-				Role:      c.Role,
+				AssetID:      c.AssetID,
+				Order:        c.Order,
+				StartMs:      c.StartMs,
+				EndMs:        c.EndMs,
+				Type:         assetType,
+				LocalPath:    local,
+				Role:         c.Role,
+				Act:          c.Act,
+				MotionPreset: c.MotionPreset,
+				VisualStyle:  c.VisualStyle,
+				TransitionIn: c.TransitionIn,
 			})
 		}
 	} else {
@@ -312,11 +316,15 @@ func truncateRun(s string, n int) string {
 }
 
 type cutClip struct {
-	AssetID string          `json:"assetId"`
-	Order   int             `json:"order"`
-	StartMs int             `json:"startMs"`
-	EndMs   int             `json:"endMs"`
-	Role    ffmpeg.ClipRole `json:"role"`
+	AssetID      string              `json:"assetId"`
+	Order        int                 `json:"order"`
+	StartMs      int                 `json:"startMs"`
+	EndMs        int                 `json:"endMs"`
+	Role         ffmpeg.ClipRole     `json:"role"`
+	Act          ffmpeg.ClipAct      `json:"act"`
+	MotionPreset ffmpeg.MotionPreset `json:"motionPreset,omitempty"`
+	VisualStyle  ffmpeg.VisualStyle  `json:"visualStyle"`
+	TransitionIn ffmpeg.TransitionIn `json:"transitionIn"`
 }
 
 type cutJSON struct {

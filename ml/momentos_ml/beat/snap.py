@@ -7,7 +7,13 @@ from pydantic import BaseModel, Field
 from momentos_ml.beat.grid import BeatGrid
 from momentos_ml.features.extract import AssetFeature
 from momentos_ml.styles.song_pick import HERO_OUTRO_SPAN_BEATS, NOMINAL_BPM
-from momentos_ml.validate.cut_schema import CutCaption, CutClip, CutClipRole, CutMarker
+from momentos_ml.validate.cut_schema import (
+    CutCaption,
+    CutClip,
+    CutClipRole,
+    CutMarker,
+    clip_field_defaults_for_role,
+)
 
 _HERO_TOLERANCE_MS = int(0.5 * (60_000 / NOMINAL_BPM))
 _HERO_EXPECTED_MS = int(round(HERO_OUTRO_SPAN_BEATS * (60_000 / NOMINAL_BPM)))
@@ -91,6 +97,7 @@ def snap_to_grid(
                         "too short for any positive window"
                     )
 
+        defaults = clip_field_defaults_for_role(p.role)
         clips.append(
             CutClip(
                 assetId=p.asset_id,
@@ -98,6 +105,10 @@ def snap_to_grid(
                 startMs=start_ms,
                 endMs=end_ms,
                 role=p.role,
+                act=defaults.act,
+                motionPreset=defaults.motion_preset,
+                visualStyle=defaults.visual_style,
+                transitionIn=defaults.transition_in,
             )
         )
 
@@ -113,12 +124,17 @@ def snap_to_grid(
     # Safety net for older planners that omit hero_outro.
     if clips and not any(c.role == "hero_outro" for c in clips):
         last = clips[-1]
+        defaults = clip_field_defaults_for_role("hero_outro")
         clips[-1] = CutClip(
             assetId=last.asset_id,
             order=last.order,
             startMs=last.start_ms,
             endMs=last.end_ms,
             role="hero_outro",
+            act=defaults.act,
+            motionPreset=defaults.motion_preset,
+            visualStyle=defaults.visual_style,
+            transitionIn=defaults.transition_in,
         )
 
     return clips

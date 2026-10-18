@@ -7,9 +7,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// ValidateCreateMomentContract enforces Week Intake Reflection rules (seam 3).
+// MaxCreateMomentAssets is the Week Intake cap (total assetIds including Reflection).
+// Mirrors CreateMomentRequest.assetIds maxItems in packages/contracts/openapi.yaml (ADR 0016).
+const MaxCreateMomentAssets = 20
+
+// ValidateCreateMomentContract enforces Week Intake Reflection rules + Asset cap (seam 3).
 // Reflection is identified by reflectionAssetId (must be in assetIds) plus a non-empty reflectionQuestion.
 func ValidateCreateMomentContract(in CreateMomentInput) error {
+	if len(in.AssetIDs) == 0 || len(in.AssetIDs) > MaxCreateMomentAssets {
+		return fmt.Errorf("%w: assetIds must be 1..%d", ErrInvalid, MaxCreateMomentAssets)
+	}
 	if strings.TrimSpace(in.ReflectionQuestion) == "" {
 		return fmt.Errorf("%w: reflectionQuestion is required", ErrInvalid)
 	}

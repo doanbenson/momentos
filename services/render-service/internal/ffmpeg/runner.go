@@ -109,11 +109,15 @@ type CutWire struct {
 }
 
 type CutWireClip struct {
-	AssetID string   `json:"assetId"`
-	Order   int      `json:"order"`
-	StartMs int      `json:"startMs"`
-	EndMs   int      `json:"endMs"`
-	Role    ClipRole `json:"role"`
+	AssetID      string       `json:"assetId"`
+	Order        int          `json:"order"`
+	StartMs      int          `json:"startMs"`
+	EndMs        int          `json:"endMs"`
+	Role         ClipRole     `json:"role"`
+	Act          ClipAct      `json:"act"`
+	MotionPreset MotionPreset `json:"motionPreset,omitempty"`
+	VisualStyle  VisualStyle  `json:"visualStyle"`
+	TransitionIn TransitionIn `json:"transitionIn"`
 }
 
 type AssetLocal struct {
@@ -151,13 +155,17 @@ func planFromWire(w CutWire) (Plan, error) {
 			return Plan{}, fmt.Errorf("asset %s: missing type/path in cut JSON assets map", c.AssetID)
 		}
 		p.Clips = append(p.Clips, ClipInput{
-			AssetID:   c.AssetID,
-			Order:     c.Order,
-			StartMs:   c.StartMs,
-			EndMs:     c.EndMs,
-			Type:      a.Type,
-			LocalPath: a.LocalPath,
-			Role:      c.Role,
+			AssetID:      c.AssetID,
+			Order:        c.Order,
+			StartMs:      c.StartMs,
+			EndMs:        c.EndMs,
+			Type:         a.Type,
+			LocalPath:    a.LocalPath,
+			Role:         c.Role,
+			Act:          c.Act,
+			MotionPreset: c.MotionPreset,
+			VisualStyle:  c.VisualStyle,
+			TransitionIn: c.TransitionIn,
 		})
 	}
 	return p, nil

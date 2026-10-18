@@ -56,13 +56,14 @@ type claimEnvelope struct {
 }
 
 type renderPayload struct {
-	JobType      string `json:"jobType"`
-	JobID        string `json:"jobId"`
-	MomentID     string `json:"momentId"`
-	CutVersion   int    `json:"cutVersion"`
-	SongPickID   string `json:"songPickId"`
-	EditAudioURL string `json:"editAudioUrl"`
-	Cut          struct {
+	JobType            string `json:"jobType"`
+	JobID              string `json:"jobId"`
+	MomentID           string `json:"momentId"`
+	CutVersion         int    `json:"cutVersion"`
+	SongPickID         string `json:"songPickId"`
+	EditAudioURL       string `json:"editAudioUrl"`
+	ReflectionQuestion string `json:"reflectionQuestion"`
+	Cut                struct {
 		ID         string          `json:"id"`
 		MomentID   string          `json:"momentId"`
 		Version    int             `json:"version"`
@@ -136,16 +137,17 @@ func (b *MomentBroker) PollClaim(ctx context.Context, store *database.Store) err
 		cutVer = payload.Cut.Version
 	}
 	job := &database.Job{
-		ID:           jobID,
-		MomentID:     env.MomentID,
-		CutID:        cutID,
-		CutVersion:   cutVer,
-		SongPickID:   payload.SongPickID,
-		EditAudioURL: payload.EditAudioURL,
-		CutJSON:      cutJSON,
-		Assets:       assets,
-		Status:       database.StatusQueued,
-		MaxAttempts:  3,
+		ID:                 jobID,
+		MomentID:           env.MomentID,
+		CutID:              cutID,
+		CutVersion:         cutVer,
+		SongPickID:         payload.SongPickID,
+		EditAudioURL:       payload.EditAudioURL,
+		ReflectionQuestion: payload.ReflectionQuestion,
+		CutJSON:            cutJSON,
+		Assets:             assets,
+		Status:             database.StatusQueued,
+		MaxAttempts:        3,
 	}
 	if job.MomentID == "" {
 		job.MomentID = payload.MomentID

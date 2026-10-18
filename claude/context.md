@@ -4,7 +4,7 @@ Hackathon MVP monorepo: Expo mobile + Go microservices + Python Cut drafting.
 
 ## Product (one paragraph)
 
-Users complete **Week Intake** (up to 10 Assets: photo / video / voice), Momentos drafts a **Cut** in a Life On Film–inspired **Style Profile** modulated by a fixed **Vibe**, beat-synced to the hard-coded **Song Pick** (“Live A Life You Will Remember”), **Renders** it, then opens the **Editor** (preview, reorder, replace, remove, re-render). Users **save** in-app or **share** via OS sheet plus Instagram **Audio Match** checklist (Edit Audio for editing; Platform Song at Reel upload).
+Users complete **Week Intake** (up to 20 Assets including Reflection: photo / video / voice), Momentos drafts a **Cut** in a Life On Film–inspired **Style Profile** modulated by a fixed **Vibe**, beat-synced to the hard-coded **Song Pick** (“Live A Life You Will Remember”), **Renders** it, then opens the **Editor** (preview, reorder, replace, remove, re-render). Users **save** in-app or **share** via OS sheet plus Instagram **Audio Match** checklist (Edit Audio for editing; Platform Song at Reel upload).
 
 ## MVP locks
 

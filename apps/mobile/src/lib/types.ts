@@ -28,12 +28,29 @@ export type Moment = {
 
 export type CutClipRole = "reflection" | "montage" | "hero_outro";
 
+export type CutClipAct = 1 | 2 | 3;
+
+export type CutMotionPreset =
+  | "hook_slow_push"
+  | "whip_punch_in"
+  | "handheld_super8_drift"
+  | "native_action_crop";
+
+export type CutVisualStyle = "clean_916" | "super8_gate";
+
+export type CutTransitionIn = "none" | "hard_cut" | "white_flash";
+
 export type CutClip = {
   assetId: string;
   order: number;
   startMs?: number;
   endMs?: number;
   role: CutClipRole;
+  act: CutClipAct;
+  /** Required on picture clips; omit for voice-only Reflection slate. */
+  motionPreset?: CutMotionPreset;
+  visualStyle: CutVisualStyle;
+  transitionIn: CutTransitionIn;
 };
 
 export type CutCaption = {
@@ -69,6 +86,7 @@ export type EditorPatch = {
 };
 
 export type CreateMomentRequest = {
+  /** Including Reflection; OpenAPI maxItems 20 (ADR 0016). */
   assetIds: string[];
   reflectionAssetId: string;
   reflectionQuestion: string;

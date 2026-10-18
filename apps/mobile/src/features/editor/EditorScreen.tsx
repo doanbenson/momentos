@@ -70,6 +70,17 @@ export function EditorScreen() {
     [clips],
   );
 
+  function clipsInOrder(ids: string[]): CutClip[] {
+    const byId = new Map(clips.map((c) => [c.assetId, c]));
+    return ids.map((assetId, order) => {
+      const prev = byId.get(assetId);
+      if (!prev) {
+        throw new Error(`Cut clip missing for Asset ${assetId}`);
+      }
+      return { ...prev, order };
+    });
+  }
+
   function moveSelected(dir: -1 | 1) {
     if (!selectedAssetId) return;
     const ids = [...orderedIds];
@@ -77,12 +88,7 @@ export function EditorScreen() {
     const next = idx + dir;
     if (idx < 0 || next < 0 || next >= ids.length) return;
     [ids[idx], ids[next]] = [ids[next], ids[idx]];
-    setClips(
-      ids.map((assetId, order) => ({
-        assetId,
-        order,
-      })),
-    );
+    setClips(clipsInOrder(ids));
     setDirty(true);
   }
 
@@ -90,7 +96,7 @@ export function EditorScreen() {
     if (!selectedAssetId) return;
     const next = orderedIds.filter((id) => id !== selectedAssetId);
     setRemovedIds((prev) => [...prev, selectedAssetId]);
-    setClips(next.map((assetId, order) => ({ assetId, order })));
+    setClips(clipsInOrder(next));
     setSelectedAssetId(next[0] ?? null);
     setDirty(true);
   }

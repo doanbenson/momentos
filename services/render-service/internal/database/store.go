@@ -19,23 +19,24 @@ const (
 
 // Job row: inputs for encode + result metadata.
 type Job struct {
-	ID            string    `json:"id"`
-	MomentID      string    `json:"momentId"`
-	CutID         string    `json:"cutId"`
-	CutVersion    int       `json:"cutVersion"`
-	SongPickID    string    `json:"songPickId,omitempty"`
-	EditAudioURL  string    `json:"editAudioUrl,omitempty"`
-	CutJSON       []byte    `json:"-"` // raw Cut from payload when present
-	Assets        []AssetRef `json:"assets"`
-	Status        JobStatus `json:"status"`
-	Attempts      int       `json:"attempts"`
-	MaxAttempts   int       `json:"maxAttempts"`
-	OutputKey     string    `json:"outputKey,omitempty"`
-	RenderURL     string    `json:"renderUrl,omitempty"`
-	LastError     string    `json:"lastError,omitempty"`
-	TerminalFail  bool      `json:"terminalFail,omitempty"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID                 string     `json:"id"`
+	MomentID           string     `json:"momentId"`
+	CutID              string     `json:"cutId"`
+	CutVersion         int        `json:"cutVersion"`
+	SongPickID         string     `json:"songPickId,omitempty"`
+	EditAudioURL       string     `json:"editAudioUrl,omitempty"`
+	ReflectionQuestion string     `json:"reflectionQuestion,omitempty"` // Act 1 banner (ADR 0020); not on Cut clips
+	CutJSON            []byte     `json:"-"`                              // raw Cut from payload when present
+	Assets             []AssetRef `json:"assets"`
+	Status             JobStatus  `json:"status"`
+	Attempts           int        `json:"attempts"`
+	MaxAttempts        int        `json:"maxAttempts"`
+	OutputKey          string     `json:"outputKey,omitempty"`
+	RenderURL          string     `json:"renderUrl,omitempty"`
+	LastError          string     `json:"lastError,omitempty"`
+	TerminalFail       bool       `json:"terminalFail,omitempty"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	UpdatedAt          time.Time  `json:"updatedAt"`
 }
 
 // AssetRef is Asset metadata shipped on the job (type + download URL).
