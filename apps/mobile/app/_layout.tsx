@@ -5,13 +5,11 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
 import {
-  Syne_400Regular,
-  Syne_700Bold,
-} from "@expo-google-fonts/syne";
-import {
-  IBMPlexSans_400Regular,
-  IBMPlexSans_500Medium,
-} from "@expo-google-fonts/ibm-plex-sans";
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_500Medium,
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+} from "@expo-google-fonts/plus-jakarta-sans";
 import {
   SpaceGrotesk_500Medium,
   SpaceGrotesk_700Bold,
@@ -24,10 +22,10 @@ import { colors } from "@/theme/tokens";
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    Syne_400Regular,
-    Syne_700Bold,
-    IBMPlexSans_400Regular,
-    IBMPlexSans_500Medium,
+    PlusJakartaSans_400Regular,
+    PlusJakartaSans_500Medium,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
     SpaceGrotesk_500Medium,
     SpaceGrotesk_700Bold,
   });
@@ -67,6 +65,7 @@ export default function RootLayout() {
           >
             <Stack.Screen name="index" />
             <Stack.Screen name="(auth)" />
+            <Stack.Screen name="(home)" />
             <Stack.Screen name="(onboarding)" />
             <Stack.Screen name="(processing)" />
             <Stack.Screen name="(editor)" />

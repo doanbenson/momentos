@@ -1,23 +1,34 @@
-/** Momentos Film Grain — from Stitch design system + SPEC. */
+/** Moments Video Editor — Obsidian Sunset (Stitch project). */
 export const colors = {
-  background: "#12100E",
-  surface: "#1A1714",
-  surfaceAlt: "#181512",
-  onSurface: "#F2EDE6",
-  onSurfaceMuted: "#A89F94",
-  primary: "#C4A574",
-  secondary: "#8B9A7A",
-  tertiary: "#6B7C8A",
-  outline: "rgba(196, 165, 116, 0.18)",
-  outlineStrong: "rgba(242, 237, 230, 0.12)",
-  error: "#C97A6E",
-  onPrimary: "#12100E",
+  background: "#0B0B0E",
+  surface: "#16161D",
+  surfaceAlt: "#22222D",
+  surfaceContainer: "#1F1F22",
+  onSurface: "#F8FAFC",
+  onSurfaceMuted: "#94A3B8",
+  /** Sunset coral — primary CTA / playhead energy */
+  primary: "#FF5722",
+  primarySoft: "#FFB5A0",
+  onPrimary: "#FFFFFF",
+  /** Dusk violet — AI / secondary creative */
+  secondary: "#E040FB",
+  secondarySoft: "#FAABFF",
+  /** Golden amber — warnings / badges */
+  tertiary: "#FFB300",
+  outline: "rgba(255, 255, 255, 0.07)",
+  outlineStrong: "rgba(255, 255, 255, 0.12)",
+  error: "#FFB4AB",
+  glowPrimary: "rgba(255, 87, 34, 0.45)",
+  glowSecondary: "rgba(224, 64, 251, 0.35)",
 } as const;
 
 export const radius = {
-  /** ROUND_FOUR — buttons, tiles; not pills */
-  sm: 4,
-  md: 8,
+  sm: 8,
+  md: 16,
+  /** Soft media tiles */
+  lg: 24,
+  /** ROUND_FULL — pills, primary buttons, chips */
+  full: 9999,
 } as const;
 
 export const space = {

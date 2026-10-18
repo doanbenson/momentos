@@ -234,13 +234,13 @@ export function WeekIntakeScreen() {
           />
         </View>
 
-        <View style={styles.counterRow}>
+        <View style={styles.counterPill}>
           <Text style={styles.counter}>
             {assets.length}/{MAX_INTAKE_ASSETS}
           </Text>
           <Text style={styles.counterHint}>Assets</Text>
           {!hasReflection ? (
-            <Text style={styles.missingHint}>· needs Reflection</Text>
+            <Text style={styles.missingHint}>needs Reflection</Text>
           ) : null}
         </View>
 
@@ -295,10 +295,10 @@ const styles = StyleSheet.create({
   body: { ...typography.body },
   questionCard: {
     marginTop: space.sm,
-    padding: space.md,
-    borderRadius: radius.md,
+    padding: space.lg,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.outline,
+    borderColor: colors.outlineStrong,
     backgroundColor: colors.surface,
     gap: space.sm,
   },
@@ -315,17 +315,24 @@ const styles = StyleSheet.create({
   reflectionCta: {
     marginTop: space.xs,
   },
-  counterRow: {
+  counterPill: {
     flexDirection: "row",
-    alignItems: "baseline",
+    alignItems: "center",
+    alignSelf: "flex-start",
     gap: space.sm,
     marginTop: space.sm,
+    paddingVertical: space.sm,
+    paddingHorizontal: space.md,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.outline,
   },
   counter: {
     fontFamily: typography.label.fontFamily,
-    fontSize: 20,
+    fontSize: 16,
     color: colors.primary,
-    letterSpacing: 1,
+    letterSpacing: 0.6,
   },
   counterHint: { ...typography.label },
   missingHint: {

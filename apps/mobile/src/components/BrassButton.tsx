@@ -48,19 +48,19 @@ export function BrassButton({
 const styles = StyleSheet.create({
   base: {
     backgroundColor: colors.primary,
-    borderRadius: radius.sm,
+    borderRadius: radius.full,
     paddingVertical: space.md,
     paddingHorizontal: space.lg,
     alignItems: "center",
     justifyContent: "center",
     minHeight: 52,
   },
-  pressed: { opacity: 0.88 },
+  pressed: { opacity: 0.88, transform: [{ scale: 0.96 }] },
   disabled: { opacity: 0.4 },
   label: {
-    fontFamily: fonts.labelBold,
+    fontFamily: fonts.headlineRegular,
     fontSize: 15,
-    letterSpacing: 0.6,
+    letterSpacing: 0.2,
     color: colors.onPrimary,
   },
 });

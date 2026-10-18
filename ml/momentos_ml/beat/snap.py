@@ -37,6 +37,10 @@ class PlannerPlacement(BaseModel):
     motion_preset: CutMotionPreset | None = Field(default=None, alias="motionPreset")
     visual_style: CutVisualStyle | None = Field(default=None, alias="visualStyle")
     transition_in: CutTransitionIn | None = Field(default=None, alias="transitionIn")
+    # File offsets for video/voice. Unset → snap plays from t=0 for the timeline slot.
+    # Reflection carries the outer speech window (not timeline startMs).
+    source_in_ms: int | None = Field(default=None, alias="sourceInMs")
+    source_out_ms: int | None = Field(default=None, alias="sourceOutMs")
 
     model_config = {"populate_by_name": True}
 
@@ -56,7 +60,13 @@ def snap_to_grid(
     Rules:
     - start_beat / end_beat index into BeatGrid.beat_ms; end exclusive.
     - Durations must be > 0; timeline must be non-decreasing by order.
-    - Video/voice windows trimmed to ≤ source duration_ms when known.
+    - Video/voice windows trimmed to ≤ source duration when known.
+      Reflection (and a Reflection promoted to hero_outro) caps that duration
+      at the planner speech window (sourceOutMs - sourceInMs), not the whole file.
+      hero_outro still refuses a silent shrink below a legal span.
+    - sourceInMs/sourceOutMs are file offsets. Photos and other video/voice
+      without a source window use sourceInMs=0 and sourceOutMs=timeline length.
+      Timeline startMs is never a file seek.
     - role + Act / Motion / Visual / transitionIn are carried from the planner;
       snap fills role defaults only when the planner omitted them.
     - motionPreset is required on picture (photo/video) clips (ADR 0015).
@@ -94,33 +104,59 @@ def snap_to_grid(
             )
 
         feat = by_id.get(p.asset_id)
-        # Photos / 0ms sources hold the full target beat window (source_in=0,
-        # source_out=target_duration). Do not trim or raise SnapError.
+        # Photos / 0ms sources hold the full target beat window (sourceInMs=0,
+        # sourceOutMs=hold duration). Do not trim or raise SnapError.
         # (extract.py maps stills / 0ms → a synthetic positive duration for validators.)
         holdable_source = feat is not None and (
             feat.type == "photo" or feat.duration_ms == 0
         )
-        if (
-            feat
+        timed_media = (
+            feat is not None
             and feat.type in ("video", "voice")
-            and feat.duration_ms is not None
             and not holdable_source
+        )
+        window = _explicit_source_window(p) if timed_media else None
+        source_in: int | None = None
+        source_out: int | None = None
+        if window is not None and feat is not None:
+            source_in, source_out = _clamp_source_to_file(
+                window[0], window[1], feat.duration_ms, p.asset_id
+            )
+
+        # Reflection plays the speech window. A voice-only Reflection is promoted
+        # to hero_outro and keeps that window. Other video/voice cap on the file.
+        cap_ms: int | None = None
+        if (
+            timed_media
+            and source_in is not None
+            and source_out is not None
+            and p.role in ("reflection", "hero_outro")
         ):
-            max_end = start_ms + feat.duration_ms
+            cap_ms = source_out - source_in
+        elif timed_media and feat is not None and feat.duration_ms is not None:
+            cap_ms = feat.duration_ms
+
+        if cap_ms is not None:
+            max_end = start_ms + cap_ms
             if end_ms > max_end:
                 # hero_outro must stay a legal 4-beat span — do not silently shrink.
                 if p.role == "hero_outro":
                     raise SnapError(
                         f"asset {p.asset_id}: hero_outro needs ~{_HERO_EXPECTED_MS}ms "
                         f"(±{_HERO_TOLERANCE_MS}ms) but source duration is only "
-                        f"{feat.duration_ms}ms; pick a longer hero Asset"
+                        f"{cap_ms}ms; pick a longer hero Asset"
                     )
                 end_ms = max_end
                 if end_ms <= start_ms:
                     raise SnapError(
-                        f"asset {p.asset_id}: source duration {feat.duration_ms}ms "
+                        f"asset {p.asset_id}: source duration {cap_ms}ms "
                         "too short for any positive window"
                     )
+
+        if source_in is None or source_out is None:
+            # No file seek. sourceOutMs is the timeline slot, not a photo decode range.
+            source_in = 0
+            source_out = end_ms - start_ms
 
         defaults = clip_field_defaults_for_role(p.role)
         if p.act is not None:
@@ -153,6 +189,8 @@ def snap_to_grid(
                 order=order,
                 startMs=start_ms,
                 endMs=end_ms,
+                sourceInMs=source_in,
+                sourceOutMs=source_out,
                 role=p.role,
                 act=act,
                 motionPreset=motion,
@@ -185,6 +223,8 @@ def snap_to_grid(
             order=last.order,
             startMs=last.start_ms,
             endMs=last.end_ms,
+            sourceInMs=last.source_in_ms,
+            sourceOutMs=last.source_out_ms,
             role="hero_outro",
             act=defaults.act,
             motionPreset=motion,
@@ -222,8 +262,13 @@ def snap_markers(
 def offset_captions(
     captions: list[CutCaption] | list[dict],
     reflection_start_ms: int,
+    source_in_ms: int = 0,
 ) -> list[CutCaption]:
-    """Shift Asset-local caption cues onto the Cut timeline."""
+    """Shift Asset-local caption cues onto the trimmed Reflection voice.
+
+    A word at file time T lands at timelineStart + (T - sourceInMs).
+    """
+    shift = reflection_start_ms - source_in_ms
     out: list[CutCaption] = []
     for c in captions:
         if isinstance(c, CutCaption):
@@ -235,11 +280,41 @@ def offset_captions(
         out.append(
             CutCaption(
                 text=text,
-                startMs=start + reflection_start_ms,
-                endMs=end + reflection_start_ms,
+                startMs=start + shift,
+                endMs=end + shift,
             )
         )
     return out
+
+
+def _explicit_source_window(p: PlannerPlacement) -> tuple[int, int] | None:
+    """Planner file window, if both offsets are present and positive-length."""
+    if p.source_in_ms is None or p.source_out_ms is None:
+        return None
+    if p.source_out_ms <= p.source_in_ms:
+        return None
+    return p.source_in_ms, p.source_out_ms
+
+
+def _clamp_source_to_file(
+    source_in: int,
+    source_out: int,
+    duration_ms: int | None,
+    asset_id: str,
+) -> tuple[int, int]:
+    if duration_ms is None or duration_ms <= 0:
+        return source_in, source_out
+    if source_in >= duration_ms:
+        raise SnapError(
+            f"asset {asset_id}: sourceInMs {source_in} past source duration {duration_ms}ms"
+        )
+    source_out = min(source_out, duration_ms)
+    if source_out <= source_in:
+        raise SnapError(
+            f"asset {asset_id}: source window [{source_in}, {source_out}) "
+            f"is empty after clamping to {duration_ms}ms"
+        )
+    return source_in, source_out
 
 
 def _extend_past_last(grid: BeatGrid) -> int:

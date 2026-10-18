@@ -7,7 +7,7 @@ import { BrassButton } from "@/components/BrassButton";
 import { FilmProgressRule } from "@/components/FilmProgressRule";
 import { GhostButton } from "@/components/GhostButton";
 import { SongPickCaption } from "@/components/SongPickCaption";
-import { colors, space } from "@/theme/tokens";
+import { colors, radius, space } from "@/theme/tokens";
 import { typography } from "@/theme/typography";
 import { CompositionStatus } from "./CompositionStatus";
 import { useMomentJobs } from "./MomentJobsProvider";
@@ -34,6 +34,7 @@ export function ProcessingScreen() {
       <View style={styles.content}>
         <BrandMark variant="quiet" />
         <View style={styles.atmosphere}>
+          <View style={styles.atmosphereDot} />
           <Text style={styles.atmosphereLabel}>PROCESSING</Text>
         </View>
         <CompositionStatus status={active?.status} />
@@ -72,13 +73,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   atmosphere: {
-    height: 160,
-    borderRadius: 4,
+    height: 180,
+    borderRadius: radius.lg,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.outline,
+    borderColor: colors.outlineStrong,
     alignItems: "center",
     justifyContent: "center",
+    gap: space.sm,
+  },
+  atmosphereDot: {
+    width: 10,
+    height: 10,
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
   },
   atmosphereLabel: {
     ...typography.label,

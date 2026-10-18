@@ -92,6 +92,14 @@ type MomentAggregate struct {
 	ErrorMessage       *string        `json:"errorMessage,omitempty"`
 }
 
+// ProxyListMoments returns moment-service's newest-first list.
+// GET one Moment signs renderUrl and nests assets and the Cut. Doing that
+// once per row would block the list on media, so renderUrl stays whatever
+// moment-service already included (the row has a storage key, not a URL).
+func (b *BFF) ProxyListMoments(ctx context.Context, principal string) (int, []byte, error) {
+	return b.Moment.Do(ctx, http.MethodGet, "/v1/moments", principal, nil, nil)
+}
+
 func (b *BFF) ProxyCreateMoment(ctx context.Context, principal string, body []byte, idemKey string) (int, []byte, error) {
 	extra := http.Header{}
 	if idemKey != "" {

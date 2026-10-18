@@ -105,6 +105,21 @@ paths:
             type: boolean
 
   /v1/moments:
+    get:
+      summary: List Moments for the signed-in user
+      operationId: listMoments
+      responses:
+        "200":
+          description: |
+            Moments for the signed-in user, newest first.
+            Each item includes id, status, createdAt, and songPickId.
+            renderUrl is optional.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Moment"
     post:
       summary: Create Moment from Week Intake
       operationId: createMoment
@@ -332,6 +347,11 @@ components:
         status:
           type: string
           enum: [intake, drafting, rendering, ready, failed]
+        createdAt:
+          type: string
+          format: date-time
+        songPickId:
+          type: string
         songPick:
           $ref: "#/components/schemas/SongPick"
         assetIds:
@@ -439,6 +459,12 @@ components:
                 type: integer
               endMs:
                 type: integer
+              sourceInMs:
+                type: integer
+                description: Inclusive file offset in ms. Conceptually 0 when omitted. Photos are not file seeks.
+              sourceOutMs:
+                type: integer
+                description: Exclusive file offset in ms. For video and voice, sourceOutMs - sourceInMs is the clip duration.
               role:
                 $ref: "#/components/schemas/CutClipRole"
               act:
@@ -481,6 +507,19 @@ components:
           type: boolean
         reRender:
           type: boolean
+        trims:
+          type: array
+          items:
+            type: object
+            required: [assetId, sourceInMs, sourceOutMs]
+            properties:
+              assetId:
+                type: string
+                format: uuid
+              sourceInMs:
+                type: integer
+              sourceOutMs:
+                type: integer
     ClaimJobRequest:
       type: object
       required: [jobType, workerId]

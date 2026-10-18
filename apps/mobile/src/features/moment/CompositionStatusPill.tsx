@@ -10,10 +10,7 @@ import {
 import { useMomentJobs } from "./MomentJobsProvider";
 import { statusCopy } from "./useMomentPoll";
 
-/**
- * Global Film Grain chip for in-progress composition (ADR 0018).
- * ROUND_FOUR — not Obsidian Sunset ROUND_FULL pills.
- */
+/** Global Obsidian Sunset chip for in-progress composition (ADR 0018). */
 export function CompositionStatusPill() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
@@ -78,19 +75,19 @@ const styles = StyleSheet.create({
     width: "100%",
     paddingVertical: space.sm + 2,
     paddingHorizontal: space.md,
-    borderRadius: radius.sm,
+    borderRadius: radius.full,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.outline,
+    borderColor: colors.outlineStrong,
   },
   chipFailed: {
-    borderColor: "rgba(201, 122, 110, 0.45)",
+    borderColor: colors.error,
   },
   pressed: { opacity: 0.9 },
   dot: {
     width: 8,
     height: 8,
-    borderRadius: radius.sm,
+    borderRadius: radius.full,
     backgroundColor: colors.primary,
   },
   dotFailed: { backgroundColor: colors.error },

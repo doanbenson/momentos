@@ -78,6 +78,33 @@ FROM moments WHERE id = $1 AND user_id = $2`
 	return m, nil
 }
 
+// ListMomentsForUser returns the user's Moments, newest first.
+func (s *Store) ListMomentsForUser(ctx context.Context, userID string) ([]Moment, error) {
+	const q = `
+SELECT id, user_id, status, song_pick_id, asset_ids, reflection_asset_id, reflection_question,
+       cut_id, render_storage_key, error_code, error_message, created_at, updated_at
+FROM moments
+WHERE user_id = $1
+ORDER BY created_at DESC, id DESC`
+	rows, err := s.pool.Query(ctx, q, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]Moment, 0)
+	for rows.Next() {
+		m, err := scanMoment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *Store) UpdateMomentAssetIDs(ctx context.Context, id uuid.UUID, assetIDs []uuid.UUID) error {
 	const q = `UPDATE moments SET asset_ids = $2, updated_at = now() WHERE id = $1`
 	ct, err := s.pool.Exec(ctx, q, id, assetIDs)

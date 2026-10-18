@@ -47,6 +47,9 @@ def test_snap_trims_video_to_source_duration():
     clips = snap_to_grid(placements, grid, features)
     assert clips[0].start_ms == 0
     assert clips[0].end_ms == 600
+    # Playback starts at file t=0 for the trimmed slot, not at timeline startMs.
+    assert clips[0].source_in_ms == 0
+    assert clips[0].source_out_ms == 600
 
 
 def test_snap_rejects_hero_outro_shrunk_by_short_video():
@@ -140,3 +143,6 @@ def test_snap_photo_holds_full_beat_window_not_source_trimmed():
     clips = snap_to_grid(placements, grid, features)
     assert clips[0].start_ms == 0 and clips[0].end_ms == 1000
     assert clips[1].start_ms == 1000 and clips[1].end_ms == 2000
+    # Photos and 0ms sources are holds, not file seeks at timeline startMs.
+    assert clips[0].source_in_ms == 0 and clips[0].source_out_ms == 1000
+    assert clips[1].source_in_ms == 0 and clips[1].source_out_ms == 1000

@@ -32,7 +32,7 @@ var (
 )
 
 type Service struct {
-	Store         *database.Store
+	Store         Store
 	Media         *media.Client
 	SongPickID    string
 	SongPickTitle string
@@ -115,6 +115,15 @@ type ClipDTO struct {
 	MotionPreset *string   `json:"motionPreset,omitempty"`
 	VisualStyle  *string   `json:"visualStyle,omitempty"`
 	TransitionIn *string   `json:"transitionIn,omitempty"`
+	SourceInMs   *int      `json:"sourceInMs,omitempty"`
+	SourceOutMs  *int      `json:"sourceOutMs,omitempty"`
+}
+
+// ClipTrim is one Editor source-window edit. sourceInMs is inclusive, sourceOutMs exclusive.
+type ClipTrim struct {
+	AssetID     uuid.UUID `json:"assetId"`
+	SourceInMs  int       `json:"sourceInMs"`
+	SourceOutMs int       `json:"sourceOutMs"`
 }
 
 type EditorPatch struct {
@@ -124,8 +133,19 @@ type EditorPatch struct {
 		ToAssetID   uuid.UUID `json:"toAssetId"`
 	} `json:"replace"`
 	RemoveAssetID *uuid.UUID `json:"removeAssetId"`
+	Trims         []ClipTrim `json:"trims"`
 	ReDraft       bool       `json:"reDraft"`
 	ReRender      bool       `json:"reRender"`
+}
+
+// MomentListItem is one row of GET /v1/moments. renderUrl is omitted:
+// the moment row stores a storage key, and signing each row would block the list on media.
+type MomentListItem struct {
+	ID         uuid.UUID             `json:"id"`
+	Status     database.MomentStatus `json:"status"`
+	CreatedAt  time.Time             `json:"createdAt"`
+	SongPickID string                `json:"songPickId"`
+	RenderURL  *string               `json:"renderUrl,omitempty"`
 }
 
 func (s *Service) toMomentDTO(m *database.Moment) MomentDTO {
@@ -262,6 +282,29 @@ func (s *Service) CreateMoment(ctx context.Context, in CreateMomentInput) (*Mome
 	return &dto, nil
 }
 
+func (s *Service) ListMoments(ctx context.Context, principal string) ([]MomentListItem, error) {
+	if principal == "" {
+		return nil, ErrUnauthorized
+	}
+	ms, err := s.Store.ListMomentsForUser(ctx, principal)
+	if err != nil {
+		return nil, err
+	}
+	sort.SliceStable(ms, func(i, j int) bool {
+		return ms[i].CreatedAt.After(ms[j].CreatedAt)
+	})
+	items := make([]MomentListItem, 0, len(ms))
+	for _, m := range ms {
+		items = append(items, MomentListItem{
+			ID:         m.ID,
+			Status:     m.Status,
+			CreatedAt:  m.CreatedAt,
+			SongPickID: m.SongPickID,
+		})
+	}
+	return items, nil
+}
+
 func (s *Service) GetMoment(ctx context.Context, principal string, id uuid.UUID) (*MomentDTO, error) {
 	m, err := s.Store.GetMomentForUser(ctx, id, principal)
 	if err != nil {
@@ -307,70 +350,97 @@ func (s *Service) ApplyEditorPatch(ctx context.Context, principal string, moment
 		return nil, err
 	}
 
-	assetIDs := append([]uuid.UUID(nil), m.AssetIDs...)
-	changed := false
-
-	if len(patch.ReorderAssetIDs) > 0 {
-		if err := validateReorder(assetIDs, patch.ReorderAssetIDs); err != nil {
-			return nil, err
-		}
-		assetIDs = patch.ReorderAssetIDs
-		changed = true
+	cut, cutErr := s.Store.GetCutByMoment(ctx, momentID)
+	if cutErr != nil && !errors.Is(cutErr, database.ErrNotFound) {
+		return nil, cutErr
 	}
-	if patch.Replace != nil {
-		found := false
-		for i, id := range assetIDs {
-			if id == patch.Replace.FromAssetID {
-				assetIDs[i] = patch.Replace.ToAssetID
-				found = true
-				break
+	hasCut := cutErr == nil
+
+	if hasCut && clipEditRequested(patch) {
+		// Edit the stored Cut in place. reDraft is the only path that enqueues cut-draft.
+		clips, captions, assetIDs, editErr := applyCutEdits(cut.Clips, cut.Captions, patch)
+		if editErr != nil {
+			return nil, editErr
+		}
+		if patch.Replace != nil {
+			if err := s.validateAssetsReady(ctx, principal, []uuid.UUID{patch.Replace.ToAssetID}); err != nil {
+				return nil, err
 			}
 		}
-		if !found {
-			return nil, fmt.Errorf("%w: fromAssetId not in moment", ErrInvalid)
-		}
-		if err := s.validateAssetsReady(ctx, principal, []uuid.UUID{patch.Replace.ToAssetID}); err != nil {
+		updated, err := s.Store.UpsertCut(ctx, momentID, cut.SongPickID, clips, captions, cut.Markers)
+		if err != nil {
 			return nil, err
 		}
-		changed = true
-	}
-	if patch.RemoveAssetID != nil {
-		next := assetIDs[:0]
-		for _, id := range assetIDs {
-			if id != *patch.RemoveAssetID {
-				next = append(next, id)
-			}
-		}
-		if len(next) == len(assetIDs) {
-			return nil, fmt.Errorf("%w: removeAssetId not in moment", ErrInvalid)
-		}
-		if len(next) == 0 {
-			return nil, fmt.Errorf("%w: cannot remove last asset", ErrInvalid)
-		}
-		assetIDs = next
-		changed = true
-	}
-
-	if changed {
 		if err := s.Store.UpdateMomentAssetIDs(ctx, momentID, assetIDs); err != nil {
 			return nil, err
 		}
 		m.AssetIDs = assetIDs
+		cut = updated
+	} else if !hasCut {
+		if len(patch.Trims) > 0 {
+			return nil, fmt.Errorf("%w: no Cut to trim", ErrInvalid)
+		}
+		assetIDs := append([]uuid.UUID(nil), m.AssetIDs...)
+		changed := false
+
+		if len(patch.ReorderAssetIDs) > 0 {
+			if err := validateReorder(assetIDs, patch.ReorderAssetIDs); err != nil {
+				return nil, err
+			}
+			assetIDs = append([]uuid.UUID(nil), patch.ReorderAssetIDs...)
+			changed = true
+		}
+		if patch.Replace != nil {
+			found := false
+			for i, id := range assetIDs {
+				if id == patch.Replace.FromAssetID {
+					assetIDs[i] = patch.Replace.ToAssetID
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("%w: fromAssetId not in moment", ErrInvalid)
+			}
+			if err := s.validateAssetsReady(ctx, principal, []uuid.UUID{patch.Replace.ToAssetID}); err != nil {
+				return nil, err
+			}
+			changed = true
+		}
+		if patch.RemoveAssetID != nil {
+			next := make([]uuid.UUID, 0, len(assetIDs))
+			for _, id := range assetIDs {
+				if id != *patch.RemoveAssetID {
+					next = append(next, id)
+				}
+			}
+			if len(next) == len(assetIDs) {
+				return nil, fmt.Errorf("%w: removeAssetId not in moment", ErrInvalid)
+			}
+			if len(next) == 0 {
+				return nil, fmt.Errorf("%w: cannot remove last asset", ErrInvalid)
+			}
+			assetIDs = next
+			changed = true
+		}
+		if changed {
+			if err := s.Store.UpdateMomentAssetIDs(ctx, momentID, assetIDs); err != nil {
+				return nil, err
+			}
+			m.AssetIDs = assetIDs
+		}
 	}
 
-	// both flags → reDraft only; render enqueued after cut-draft completes
+	// both flags → reDraft only; render enqueued after cut-draft completes.
+	// trim/reorder/replace/remove with reRender must not enqueue cut-draft.
 	if patch.ReDraft {
 		if err := s.enqueueCutDraft(ctx, principal, m, true, &patch); err != nil {
 			return nil, err
 		}
 		_ = s.Store.SetMomentStatus(ctx, momentID, database.StatusDrafting, nil, nil)
 	} else if patch.ReRender {
-		cut, err := s.Store.GetCutByMoment(ctx, momentID)
-		if err != nil {
-			if errors.Is(err, database.ErrNotFound) {
-				return nil, fmt.Errorf("%w: no Cut to re-render", ErrConflict)
-			}
-			return nil, err
+		if !hasCut {
+			return nil, fmt.Errorf("%w: no Cut to re-render", ErrConflict)
 		}
 		if err := s.enqueueRender(ctx, principal, m, cut); err != nil {
 			return nil, err
@@ -378,20 +448,15 @@ func (s *Service) ApplyEditorPatch(ctx context.Context, principal string, moment
 		_ = s.Store.SetMomentStatus(ctx, momentID, database.StatusRendering, nil, nil)
 	}
 
-	cut, err := s.Store.GetCutByMoment(ctx, momentID)
-	if err != nil {
-		if errors.Is(err, database.ErrNotFound) {
-			// Asset-only patch before first Cut — return empty Cut shell for OpenAPI 200.
-			empty := &CutDTO{
-				ID:         uuid.Nil,
-				MomentID:   momentID,
-				Version:    0,
-				SongPickID: m.SongPickID,
-				Clips:      json.RawMessage("[]"),
-			}
-			return empty, nil
+	if !hasCut {
+		empty := &CutDTO{
+			ID:         uuid.Nil,
+			MomentID:   momentID,
+			Version:    0,
+			SongPickID: m.SongPickID,
+			Clips:      json.RawMessage("[]"),
 		}
-		return nil, err
+		return empty, nil
 	}
 	dto := s.toCutDTO(cut)
 	return &dto, nil

@@ -1,11 +1,12 @@
 import { TextStyle } from "react-native";
 import { colors } from "./tokens";
 
+/** Obsidian Sunset: Plus Jakarta Sans + Space Grotesk. */
 export const fonts = {
-  headline: "Syne_700Bold",
-  headlineRegular: "Syne_400Regular",
-  body: "IBMPlexSans_400Regular",
-  bodyMedium: "IBMPlexSans_500Medium",
+  headline: "PlusJakartaSans_700Bold",
+  headlineRegular: "PlusJakartaSans_600SemiBold",
+  body: "PlusJakartaSans_400Regular",
+  bodyMedium: "PlusJakartaSans_500Medium",
   label: "SpaceGrotesk_500Medium",
   labelBold: "SpaceGrotesk_700Bold",
 } as const;
@@ -14,12 +15,13 @@ export const typography = {
   brand: {
     fontFamily: fonts.headline,
     fontSize: 28,
-    letterSpacing: 1,
+    letterSpacing: -0.5,
     color: colors.onSurface,
   } satisfies TextStyle,
   title: {
-    fontFamily: fonts.headline,
+    fontFamily: fonts.headlineRegular,
     fontSize: 22,
+    letterSpacing: -0.2,
     color: colors.onSurface,
   } satisfies TextStyle,
   body: {
@@ -37,14 +39,19 @@ export const typography = {
   label: {
     fontFamily: fonts.label,
     fontSize: 12,
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-    color: colors.tertiary,
+    letterSpacing: 0.5,
+    color: colors.onSurfaceMuted,
+  } satisfies TextStyle,
+  labelStrong: {
+    fontFamily: fonts.labelBold,
+    fontSize: 12,
+    letterSpacing: 0.5,
+    color: colors.onSurface,
   } satisfies TextStyle,
   caption: {
     fontFamily: fonts.body,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
     color: colors.onSurfaceMuted,
   } satisfies TextStyle,
 } as const;

@@ -20,7 +20,7 @@ export default function AuthScreen() {
   const [busy, setBusy] = useState(false);
 
   if (!loading && session) {
-    return <Redirect href="/(onboarding)" />;
+    return <Redirect href="/(home)" />;
   }
 
   async function continueAnon() {

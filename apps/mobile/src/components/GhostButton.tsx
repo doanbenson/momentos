@@ -29,7 +29,7 @@ export function GhostButton({ label, onPress, disabled, style }: Props) {
 
 const styles = StyleSheet.create({
   base: {
-    borderRadius: radius.sm,
+    borderRadius: radius.full,
     borderWidth: 1,
     borderColor: colors.outline,
     paddingVertical: space.md,

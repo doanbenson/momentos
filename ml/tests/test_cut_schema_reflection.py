@@ -121,6 +121,46 @@ def test_cut_accepts_act_motion_look_and_transition_in():
     assert dumped["clips"][2]["visualStyle"] == "super8_gate"
 
 
+def test_cut_clip_roundtrips_source_window_aliases():
+    clip = CutClip(
+        assetId="11111111-1111-1111-1111-111111111111",
+        order=0,
+        startMs=0,
+        endMs=4000,
+        sourceInMs=1500,
+        sourceOutMs=4600,
+        role="reflection",
+        act=1,
+        visualStyle="clean_916",
+        transitionIn="none",
+    )
+    dumped = clip.model_dump(by_alias=True)
+    assert dumped["sourceInMs"] == 1500
+    assert dumped["sourceOutMs"] == 4600
+    again = CutClip.model_validate(dumped)
+    assert again.source_in_ms == 1500
+    assert again.source_out_ms == 4600
+
+
+def test_cut_clip_defaults_photo_source_to_hold_duration():
+    clip = CutClip(
+        assetId="22222222-2222-2222-2222-222222222222",
+        order=1,
+        startMs=2000,
+        endMs=3000,
+        role="montage",
+        act=3,
+        motionPreset="handheld_super8_drift",
+        visualStyle="super8_gate",
+        transitionIn="hard_cut",
+    )
+    assert clip.source_in_ms == 0
+    assert clip.source_out_ms == 1000
+    dumped = clip.model_dump(by_alias=True)
+    assert dumped["sourceInMs"] == 0
+    assert dumped["sourceOutMs"] == 1000
+
+
 def test_cut_rejects_missing_act():
     with pytest.raises(ValidationError):
         CutClip(

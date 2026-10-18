@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
   tile: {
     width: TILE,
     height: TILE,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     overflow: "hidden",
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
   },
   reflectionBadge: {
     backgroundColor: "rgba(18, 16, 14, 0.85)",
-    borderRadius: radius.sm,
+    borderRadius: radius.full,
     paddingHorizontal: space.sm,
     paddingVertical: 2,
     borderWidth: 1,
@@ -161,9 +161,9 @@ const styles = StyleSheet.create({
   addTile: {
     width: TILE,
     height: TILE,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.outline,
+    borderColor: colors.outlineStrong,
     borderStyle: "dashed",
     alignItems: "center",
     justifyContent: "center",

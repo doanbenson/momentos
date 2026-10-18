@@ -21,6 +21,7 @@ func NewMux(d Deps) http.Handler {
 	})
 
 	auth := supabaseJWT(d.JWTConfig)
+	mux.Handle("GET /v1/moments", auth(http.HandlerFunc(h.listMoments)))
 	mux.Handle("POST /v1/moments", auth(http.HandlerFunc(h.createMoment)))
 	mux.Handle("GET /v1/moments/{momentId}", auth(http.HandlerFunc(h.getMoment)))
 	mux.Handle("GET /v1/moments/{momentId}/cut", auth(http.HandlerFunc(h.getCut)))

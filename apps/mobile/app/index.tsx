@@ -25,5 +25,5 @@ export default function Index() {
     return <Redirect href="/(auth)" />;
   }
 
-  return <Redirect href="/(onboarding)" />;
+  return <Redirect href="/(home)" />;
 }

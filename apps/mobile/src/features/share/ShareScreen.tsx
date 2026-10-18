@@ -28,6 +28,7 @@ export function ShareScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.kicker}>MOMENT</Text>
         <Text style={styles.title}>Save or share</Text>
         <Text style={styles.body}>
           Keep your Moment, or share the Render and attach the Platform Song in
@@ -68,17 +69,21 @@ const styles = StyleSheet.create({
     gap: space.md,
     paddingBottom: space.xl,
   },
+  kicker: {
+    ...typography.label,
+    color: colors.primary,
+  },
   title: { ...typography.title },
   body: { ...typography.body },
   thumb: {
     aspectRatio: 9 / 16,
     maxHeight: 280,
     alignSelf: "center",
-    width: "55%",
-    borderRadius: radius.sm,
+    width: "58%",
+    borderRadius: radius.lg,
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.outline,
+    borderColor: colors.outlineStrong,
     alignItems: "center",
     justifyContent: "center",
     padding: space.md,

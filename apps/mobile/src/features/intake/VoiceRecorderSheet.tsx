@@ -128,8 +128,8 @@ const styles = StyleSheet.create({
   },
   sheet: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.md,
-    borderTopRightRadius: radius.md,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
     padding: space.lg,
     gap: space.sm,
     borderTopWidth: 1,
@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
   sub: { ...typography.caption, marginBottom: space.sm },
   status: {
     padding: space.md,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     backgroundColor: colors.surfaceAlt,
     borderWidth: 1,
     borderColor: colors.outline,

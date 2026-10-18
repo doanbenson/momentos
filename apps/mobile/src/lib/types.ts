@@ -26,6 +26,15 @@ export type Moment = {
   renderUrl?: string;
 };
 
+/** Row from GET /v1/moments. Newest first when listed on Home. */
+export type MomentListItem = {
+  id: string;
+  status: MomentStatus;
+  createdAt: string;
+  songPickId: string;
+  renderUrl?: string;
+};
+
 export type CutClipRole = "reflection" | "montage" | "hero_outro";
 
 export type CutClipAct = 1 | 2 | 3;
@@ -45,6 +54,10 @@ export type CutClip = {
   order: number;
   startMs?: number;
   endMs?: number;
+  /** Inclusive file offset in ms. Photos are not file seeks. */
+  sourceInMs?: number;
+  /** Exclusive file offset in ms. Duration is sourceOutMs - sourceInMs when both are set. */
+  sourceOutMs?: number;
   role: CutClipRole;
   act: CutClipAct;
   /** Required on picture clips; omit for voice-only Reflection slate. */
@@ -77,10 +90,17 @@ export type Cut = {
   markers?: CutMarker[];
 };
 
+export type EditorTrim = {
+  assetId: string;
+  sourceInMs: number;
+  sourceOutMs: number;
+};
+
 export type EditorPatch = {
   reorderAssetIds?: string[];
   replace?: { fromAssetId: string; toAssetId: string };
   removeAssetId?: string;
+  trims?: EditorTrim[];
   reDraft?: boolean;
   reRender?: boolean;
 };

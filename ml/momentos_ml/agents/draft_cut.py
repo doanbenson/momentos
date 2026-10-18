@@ -2,35 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import time
-from pathlib import Path
 from typing import Any
-
-# #region agent log
-_DEBUG_LOG = Path(__file__).resolve().parents[3] / "debug-ee3cf6.log"
-
-
-def _agent_dbg(
-    hypothesis_id: str, location: str, message: str, data: dict[str, Any]
-) -> None:
-    try:
-        payload = {
-            "sessionId": "ee3cf6",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with _DEBUG_LOG.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, default=str) + "\n")
-    except Exception:
-        pass
-
-
-# #endregion
 
 from momentos_ml.agents import gemini_planner
 from momentos_ml.agents.director import (
@@ -39,7 +12,7 @@ from momentos_ml.agents.director import (
     infer_reflection_id,
     plan_cut as director_plan_cut,
 )
-from momentos_ml.align.aligner import AlignmentResult, align_reflection
+from momentos_ml.align.aligner import align_reflection
 from momentos_ml.beat.grid import BeatGrid, build_beat_grid, load_edit_audio_bytes
 from momentos_ml.beat.snap import (
     PlannerPlacement,
@@ -228,14 +201,6 @@ def _resolve_montage_order(
             prior_hint=prior_hint,
         )
         if ordered:
-            # #region agent log
-            _agent_dbg(
-                "D",
-                "draft_cut.py:_resolve_montage_order",
-                "gemini montage order",
-                {"ordered": ordered, "fallback": chrono},
-            )
-            # #endregion
             return ordered
     except gemini_planner.GeminiPlannerError as e:
         logger.warning("Gemini montage order failed; using chronological: %s", e)
@@ -248,19 +213,6 @@ def _assert_every_asset_placed(
     """Every Moment Asset appears ≥ once (cycling may reuse montage ids)."""
     placed = [p.asset_id for p in placements]
     expected = {f.asset_id for f in features}
-    # #region agent log
-    _agent_dbg(
-        "A",
-        "draft_cut.py:_assert_every_asset_placed",
-        "coverage check",
-        {
-            "expected": sorted(expected),
-            "placed": placed,
-            "missing": sorted(expected - set(placed)),
-            "feature_types": {f.asset_id: f.type for f in features},
-        },
-    )
-    # #endregion
     if not expected.issubset(set(placed)):
         missing = sorted(expected - set(placed))
         raise PlacementImpossibleError(
@@ -270,8 +222,23 @@ def _assert_every_asset_placed(
 
 def _timeline_captions(plan: DirectorPlan, clips: list) -> list:
     reflection = next((c for c in clips if c.role == "reflection"), None)
-    start_ms = reflection.start_ms if reflection and reflection.start_ms is not None else 0
-    return offset_captions(plan.captions, start_ms)
+    if reflection is None:
+        # Voice-only Reflection is promoted to hero_outro but still carries sourceInMs.
+        reflection = next(
+            (c for c in clips if c.source_in_ms and c.source_in_ms > 0),
+            None,
+        )
+    start_ms = (
+        reflection.start_ms
+        if reflection is not None and reflection.start_ms is not None
+        else 0
+    )
+    source_in = (
+        reflection.source_in_ms
+        if reflection is not None and reflection.source_in_ms is not None
+        else 0
+    )
+    return offset_captions(plan.captions, start_ms, source_in)
 
 
 def draft_cut_legacy(assets: list[dict[str, Any]], song_pick_id: str) -> dict[str, Any]:

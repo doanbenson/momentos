@@ -4,7 +4,7 @@ import { colors, radius, space } from "@/theme/tokens";
 import { fonts, typography } from "@/theme/typography";
 import { useMomentJobs } from "./MomentJobsProvider";
 
-/** Film Grain ready notice when composition finishes off Processing (ADR 0018). */
+/** Obsidian Sunset ready notice when composition finishes off Processing (ADR 0018). */
 export function ReadyToast() {
   const insets = useSafeAreaInsets();
   const { readyToastVisible, openReadyMoment, dismissReadyToast } =
@@ -54,7 +54,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     maxWidth: 420,
     width: "100%",
-    borderRadius: radius.sm,
+    borderRadius: radius.full,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.primary,

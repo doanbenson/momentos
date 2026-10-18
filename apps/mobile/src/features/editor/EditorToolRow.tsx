@@ -1,4 +1,4 @@
-import { StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet } from "react-native";
 import { GhostButton } from "@/components/GhostButton";
 import { space } from "@/theme/tokens";
 
@@ -18,41 +18,47 @@ export function EditorToolRow({
   onRemove,
 }: Props) {
   return (
-    <View style={styles.row}>
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.row}
+    >
       <GhostButton
-        label="←"
+        label="Earlier"
         onPress={onReorderLeft}
         disabled={disabled}
-        style={styles.btn}
+        style={styles.chip}
       />
       <GhostButton
-        label="→"
+        label="Later"
         onPress={onReorderRight}
         disabled={disabled}
-        style={styles.btn}
+        style={styles.chip}
       />
       <GhostButton
         label="Replace"
         onPress={onReplace}
         disabled={disabled}
-        style={styles.flex}
+        style={styles.chip}
       />
       <GhostButton
         label="Remove"
         onPress={onRemove}
         disabled={disabled}
-        style={styles.flex}
+        style={styles.chip}
       />
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   row: {
-    flexDirection: "row",
     gap: space.sm,
-    flexWrap: "wrap",
+    paddingVertical: space.xs,
   },
-  btn: { minWidth: 48, paddingHorizontal: space.md },
-  flex: { flex: 1, minWidth: 100 },
+  chip: {
+    minHeight: 44,
+    paddingVertical: space.sm,
+    paddingHorizontal: space.md,
+  },
 });

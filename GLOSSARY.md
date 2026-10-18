@@ -6,7 +6,6 @@ A product that turns a user's selected photos, videos, and voice into a composed
 
 **Momentos**:
 The product name. The monorepo and user-facing brand.
-_Avoid_: Momento (as an identifier), Life On Film (as the product name)
 
 **Moment**:
 One composed audiovisual piece created from a user's selected media, a Reflection, and a background song.
@@ -21,7 +20,7 @@ A versioned base grammar for cutting (transition types, silence handling, grade 
 _Avoid_: filter, theme, "the AI style", Life On Film (as a system name)
 
 **Render**:
-The derived audiovisual file produced from a Cut. Not the source of truth.
+The derived audiovisual file produced from a Cut. Its length is the Cut's picture timeline. Not the source of truth.
 _Avoid_: export (when you mean the file itself), final edit
 
 **Asset**:

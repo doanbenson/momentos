@@ -27,6 +27,15 @@ func (h *Handler) createMoment(w http.ResponseWriter, r *http.Request) {
 	writeUpstream(w, status, raw)
 }
 
+func (h *Handler) listMoments(w http.ResponseWriter, r *http.Request) {
+	status, raw, err := h.BFF.ProxyListMoments(r.Context(), Principal(r.Context()))
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeUpstream(w, status, raw)
+}
+
 func (h *Handler) getMoment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("momentId")
 	agg, err := h.BFF.GetMomentAggregate(r.Context(), Principal(r.Context()), id)

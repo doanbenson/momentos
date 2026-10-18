@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,15 +15,30 @@ import { GhostButton } from "@/components/GhostButton";
 import { SongPickCaption } from "@/components/SongPickCaption";
 import { registerLocalAsset } from "@/lib/assets";
 import { getCut, getMoment, patchCut } from "@/lib/moments";
-import type { CutClip, Moment } from "@/lib/types";
-import { colors, space } from "@/theme/tokens";
-import { typography } from "@/theme/typography";
+import type { CutClip, EditorTrim, Moment } from "@/lib/types";
+import { colors, radius, space } from "@/theme/tokens";
+import { fonts, typography } from "@/theme/typography";
+import { statusCopy } from "@/features/moment/useMomentPoll";
 import { CutClipStrip } from "./CutClipStrip";
 import { EditorToolRow } from "./EditorToolRow";
 import { MomentPreviewPlayer } from "./MomentPreviewPlayer";
+import { TrimControl } from "./TrimControl";
+
+type SourceWindow = {
+  sourceInMs?: number;
+  sourceOutMs?: number;
+};
 
 function sortClips(clips: CutClip[]) {
   return [...clips].sort((a, b) => a.order - b.order);
+}
+
+function sameIds(a: string[], b: string[]) {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+function windowSnap(clip: CutClip): SourceWindow {
+  return { sourceInMs: clip.sourceInMs, sourceOutMs: clip.sourceOutMs };
 }
 
 export function EditorScreen() {
@@ -30,8 +46,11 @@ export function EditorScreen() {
   const { momentId } = useLocalSearchParams<{ momentId?: string }>();
   const [moment, setMoment] = useState<Moment | null>(null);
   const [clips, setClips] = useState<CutClip[]>([]);
+  const [baselineOrder, setBaselineOrder] = useState<string[]>([]);
+  const [baselineWindows, setBaselineWindows] = useState<
+    Record<string, SourceWindow>
+  >({});
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
   const [pendingReplace, setPendingReplace] = useState<{
     fromAssetId: string;
     toAssetId: string;
@@ -42,16 +61,23 @@ export function EditorScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!momentId) return;
+    if (!momentId) {
+      setLoading(false);
+      setError("Missing momentId.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const [m, cut] = await Promise.all([getMoment(momentId), getCut(momentId)]);
-      setMoment(m);
       const ordered = sortClips(cut.clips);
+      setMoment(m);
       setClips(ordered);
+      setBaselineOrder(ordered.map((clip) => clip.assetId));
+      setBaselineWindows(
+        Object.fromEntries(ordered.map((clip) => [clip.assetId, windowSnap(clip)])),
+      );
       setSelectedAssetId(ordered[0]?.assetId ?? null);
-      setDirty(false);
       setPendingReplace(null);
       setRemovedIds([]);
     } catch (e) {
@@ -69,6 +95,39 @@ export function EditorScreen() {
     () => sortClips(clips).map((c) => c.assetId),
     [clips],
   );
+
+  const selectedClip =
+    clips.find((clip) => clip.assetId === selectedAssetId) ?? null;
+
+  function sourceWindowChanged(clip: CutClip) {
+    const base = baselineWindows[clip.assetId];
+    if (!base) {
+      return clip.sourceInMs != null && clip.sourceOutMs != null;
+    }
+    return (
+      clip.sourceInMs !== base.sourceInMs || clip.sourceOutMs !== base.sourceOutMs
+    );
+  }
+
+  const trims: EditorTrim[] = sortClips(clips).flatMap((clip) => {
+    if (!sourceWindowChanged(clip)) return [];
+    if (clip.sourceInMs == null || clip.sourceOutMs == null) return [];
+    if (clip.sourceOutMs <= clip.sourceInMs) return [];
+    return [
+      {
+        assetId: clip.assetId,
+        sourceInMs: clip.sourceInMs,
+        sourceOutMs: clip.sourceOutMs,
+      },
+    ];
+  });
+
+  const canUpdate =
+    !loading &&
+    (pendingReplace != null ||
+      removedIds.length > 0 ||
+      !sameIds(orderedIds, baselineOrder) ||
+      trims.length > 0);
 
   /** Preserve act / role / motion / look / transitionIn on local reorder. */
   function clipsInOrder(ids: string[]): CutClip[] {
@@ -90,7 +149,6 @@ export function EditorScreen() {
     if (idx < 0 || next < 0 || next >= ids.length) return;
     [ids[idx], ids[next]] = [ids[next], ids[idx]];
     setClips(clipsInOrder(ids));
-    setDirty(true);
   }
 
   function removeSelected() {
@@ -99,7 +157,16 @@ export function EditorScreen() {
     setRemovedIds((prev) => [...prev, selectedAssetId]);
     setClips(clipsInOrder(next));
     setSelectedAssetId(next[0] ?? null);
-    setDirty(true);
+  }
+
+  function applyTrim(next: { sourceInMs: number; sourceOutMs: number }) {
+    if (!selectedAssetId) return;
+    if (next.sourceOutMs <= next.sourceInMs) return;
+    setClips((prev) =>
+      prev.map((clip) =>
+        clip.assetId === selectedAssetId ? { ...clip, ...next } : clip,
+      ),
+    );
   }
 
   async function replaceSelected() {
@@ -121,17 +188,20 @@ export function EditorScreen() {
       const toAssetId = await registerLocalAsset({
         localUri: picked.uri,
         type: isVideo ? "video" : "photo",
-        mimeType:
-          picked.mimeType ?? (isVideo ? "video/mp4" : "image/jpeg"),
+        mimeType: picked.mimeType ?? (isVideo ? "video/mp4" : "image/jpeg"),
       });
-      setPendingReplace({ fromAssetId: selectedAssetId, toAssetId });
+      const fromAssetId = selectedAssetId;
+      setPendingReplace({ fromAssetId, toAssetId });
       setClips((prev) =>
         sortClips(prev).map((c) =>
-          c.assetId === selectedAssetId ? { ...c, assetId: toAssetId } : c,
+          c.assetId === fromAssetId ? { ...c, assetId: toAssetId } : c,
         ),
       );
+      setBaselineWindows((prev) => {
+        const copied = prev[fromAssetId] ?? {};
+        return { ...prev, [toAssetId]: copied };
+      });
       setSelectedAssetId(toAssetId);
-      setDirty(true);
     } catch (e) {
       Alert.alert(
         "Replace blocked",
@@ -141,10 +211,9 @@ export function EditorScreen() {
   }
 
   async function updateMoment() {
-    if (!momentId || !dirty) return;
+    if (!momentId || !canUpdate) return;
     setUpdating(true);
     try {
-      // Batch local edits; only the final PATCH requests reDraft/reRender (GRILL Q4)
       if (pendingReplace) {
         await patchCut(momentId, { replace: pendingReplace });
       }
@@ -153,22 +222,21 @@ export function EditorScreen() {
       }
       await patchCut(momentId, {
         reorderAssetIds: orderedIds,
-        reDraft: true,
+        ...(trims.length > 0 ? { trims } : {}),
         reRender: true,
       });
-      setDirty(false);
       setPendingReplace(null);
       setRemovedIds([]);
-      Alert.alert("Updating", "Cut patched — returning to Processing while Render runs.");
+      Alert.alert(
+        "Updating",
+        "Cut patched — returning to Processing while Render runs.",
+      );
       router.replace({
         pathname: "/(processing)",
         params: { momentId },
       });
     } catch (e) {
-      Alert.alert(
-        "Update failed",
-        e instanceof Error ? e.message : String(e),
-      );
+      Alert.alert("Update failed", e instanceof Error ? e.message : String(e));
     } finally {
       setUpdating(false);
     }
@@ -176,7 +244,7 @@ export function EditorScreen() {
 
   function goShare() {
     if (!momentId) return;
-    if (dirty) {
+    if (canUpdate) {
       Alert.alert(
         "Unsaved changes",
         "Update Moment before sharing, or discard local edits?",
@@ -197,42 +265,72 @@ export function EditorScreen() {
   }
 
   function confirmBack() {
-    Alert.alert(
-      "Leave Editor?",
-      "Start another Moment from Week Intake? Unsaved strip edits will be lost.",
-      [
-        { text: "Stay", style: "cancel" },
-        {
-          text: "Week Intake",
-          style: "destructive",
-          onPress: () => router.replace("/(onboarding)"),
-        },
-      ],
-    );
+    const leave = () => router.replace("/(home)");
+    if (!canUpdate) {
+      leave();
+      return;
+    }
+    Alert.alert("Leave Editor?", "Unsaved Cut edits will be lost.", [
+      { text: "Stay", style: "cancel" },
+      { text: "Moments", style: "destructive", onPress: leave },
+    ]);
   }
+
+  const meta = moment ? statusCopy(moment.status).title : "Editor";
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <GhostButton label="Back" onPress={confirmBack} style={styles.back} />
-          <Text style={styles.title}>Editor</Text>
+      <View style={styles.header}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to Moments"
+          onPress={confirmBack}
+          hitSlop={8}
+          style={styles.back}
+        >
+          <Text style={styles.backChevron}>‹</Text>
+          <Text style={styles.backLabel}>Moments</Text>
+        </Pressable>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            Moment
+          </Text>
+          <Text style={styles.headerMeta}>{meta}</Text>
         </View>
+        <View style={styles.headerSpacer} />
+      </View>
 
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
         {loading ? <Text style={styles.muted}>Loading Cut…</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <MomentPreviewPlayer renderUrl={moment?.renderUrl} />
-        <SongPickCaption compact />
 
-        <Text style={styles.section}>Cut strip</Text>
+        <View style={styles.track}>
+          <SongPickCaption compact />
+        </View>
+
+        <View style={styles.sectionHead}>
+          <Text style={styles.section}>Cut</Text>
+          <Text style={styles.sectionHint}>Durations</Text>
+        </View>
         <CutClipStrip
           clips={clips}
           selectedAssetId={selectedAssetId}
           onSelect={setSelectedAssetId}
         />
+
+        {selectedClip ? (
+          <TrimControl clip={selectedClip} onChange={applyTrim} />
+        ) : (
+          <Text style={styles.muted}>Select an Asset to trim its source window.</Text>
+        )}
+
         <EditorToolRow
-          disabled={!selectedAssetId}
+          disabled={!selectedAssetId || updating}
           onReorderLeft={() => moveSelected(-1)}
           onReorderRight={() => moveSelected(1)}
           onReplace={() => void replaceSelected()}
@@ -242,7 +340,7 @@ export function EditorScreen() {
         <BrassButton
           label="Update Moment"
           onPress={() => void updateMoment()}
-          disabled={!dirty}
+          disabled={!canUpdate}
           loading={updating}
           style={styles.cta}
         />
@@ -254,19 +352,75 @@ export function EditorScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
-  content: {
-    padding: space.lg,
-    gap: space.md,
-    paddingBottom: space.xl,
-  },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: space.md,
+    paddingHorizontal: space.md,
+    minHeight: 56,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.outline,
+    gap: space.sm,
   },
-  back: { minWidth: 88, minHeight: 40, paddingVertical: space.sm },
-  title: { ...typography.title, flex: 1 },
-  section: { ...typography.label, marginTop: space.sm },
+  back: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 44,
+    minWidth: 88,
+    paddingRight: space.sm,
+  },
+  backChevron: {
+    fontFamily: fonts.headlineRegular,
+    fontSize: 22,
+    color: colors.onSurfaceMuted,
+    marginRight: 2,
+  },
+  backLabel: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: 14,
+    color: colors.onSurface,
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontFamily: fonts.headlineRegular,
+    fontSize: 14,
+    color: colors.onSurface,
+  },
+  headerMeta: {
+    fontFamily: fonts.label,
+    fontSize: 10,
+    letterSpacing: 0.6,
+    color: colors.onSurfaceMuted,
+  },
+  headerSpacer: { width: 88 },
+  content: {
+    padding: space.md,
+    gap: space.md,
+    paddingBottom: space.xl,
+  },
+  track: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  sectionHead: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+  },
+  section: {
+    fontFamily: fonts.headlineRegular,
+    fontSize: 16,
+    color: colors.onSurface,
+  },
+  sectionHint: {
+    ...typography.label,
+  },
   muted: { ...typography.caption },
   error: { ...typography.caption, color: colors.error },
   cta: { marginTop: space.sm },

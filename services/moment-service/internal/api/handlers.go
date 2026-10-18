@@ -48,6 +48,15 @@ func (h *Handler) createMoment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, dto)
 }
 
+func (h *Handler) listMoments(w http.ResponseWriter, r *http.Request) {
+	items, err := h.Svc.ListMoments(r.Context(), principalFrom(r.Context()))
+	if err != nil {
+		mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
 func (h *Handler) getMoment(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(r.PathValue("momentId"))
 	if err != nil {

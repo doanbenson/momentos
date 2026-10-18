@@ -80,8 +80,8 @@ const styles = StyleSheet.create({
   },
   sheet: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.md,
-    borderTopRightRadius: radius.md,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
     padding: space.lg,
     gap: space.sm,
     borderTopWidth: 1,
@@ -92,7 +92,7 @@ const styles = StyleSheet.create({
   action: {
     paddingVertical: space.md,
     paddingHorizontal: space.md,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.outline,
     backgroundColor: colors.surfaceAlt,

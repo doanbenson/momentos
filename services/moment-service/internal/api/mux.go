@@ -21,6 +21,7 @@ func NewMux(d Deps) http.Handler {
 	})
 
 	authed := chain(internalAuth(d.InternalToken), requirePrincipal)
+	mux.Handle("GET /v1/moments", authed(http.HandlerFunc(h.listMoments)))
 	mux.Handle("POST /v1/moments", authed(http.HandlerFunc(h.createMoment)))
 	mux.Handle("GET /v1/moments/{momentId}", authed(http.HandlerFunc(h.getMoment)))
 	mux.Handle("GET /v1/moments/{momentId}/cut", authed(http.HandlerFunc(h.getCut)))

@@ -44,7 +44,7 @@ class PlannerMarker(BaseModel):
 class DirectorPlan(BaseModel):
     placements: list[PlannerPlacement]
     markers: list[PlannerMarker]
-    # Asset-local caption cues; draft_cut offsets onto Reflection timeline start.
+    # Asset-local caption cues. draft_cut shifts by timelineStart - sourceInMs.
     captions: list[CutCaption]
 
 
@@ -89,7 +89,10 @@ def plan_cut(
 
     if reflection_id and reflection_id in by_id:
         feat = by_id[reflection_id]
-        keep_ms = _keep_duration_ms(alignment, feat.duration_ms)
+        # One outer window: first keep-start through last keep-end, pauses included.
+        # Cutting internal gaps would desync mouth and voice.
+        source_in_ms, source_out_ms = _outer_speech_window(alignment, feat.duration_ms)
+        keep_ms = source_out_ms - source_in_ms
         span = _span_for_ms(grid, cursor, keep_ms)
         if span is None:
             span = (0, min(PHOTO_HOLD_BEATS, n))
@@ -107,6 +110,9 @@ def plan_cut(
                         f"than available"
                     )
                 end = _clamp_legal_end(start, max_end, n)
+        # Photos are not file seeks. Video and voice Reflection keep the speech window.
+        speech_in = source_in_ms if feat.type in ("video", "voice") else None
+        speech_out = source_out_ms if feat.type in ("video", "voice") else None
         placements.append(
             _placement(
                 asset_id=reflection_id,
@@ -115,6 +121,8 @@ def plan_cut(
                 role="reflection",
                 feat=feat,
                 montage_index=None,
+                source_in_ms=speech_in,
+                source_out_ms=speech_out,
             )
         )
         cursor = end
@@ -144,6 +152,8 @@ def plan_cut(
             role="hero_outro",
             feat=feat,
             montage_index=None,
+            source_in_ms=last.source_in_ms,
+            source_out_ms=last.source_out_ms,
         )
     elif not placements and features:
         feat = features[0]
@@ -306,6 +316,8 @@ def _placement(
     role: CutClipRole,
     feat: AssetFeature | None,
     montage_index: int | None,
+    source_in_ms: int | None = None,
+    source_out_ms: int | None = None,
 ) -> PlannerPlacement:
     act, motion, visual, transition = _author_look(
         role=role, feat=feat, montage_index=montage_index
@@ -319,6 +331,8 @@ def _placement(
         motionPreset=motion,
         visualStyle=visual,
         transitionIn=transition,
+        sourceInMs=source_in_ms,
+        sourceOutMs=source_out_ms,
     )
 
 
@@ -334,7 +348,12 @@ def _author_look(
     is_picture = asset_type in ("photo", "video")
 
     if role == "reflection":
-        return 1, None, "clean_916", "none"
+        # Voice-only slate: no Motion Preset. Talking-head video/photo must carry
+        # one (snap requires motion on picture clips) — hold without Ken Burns.
+        motion: CutMotionPreset | None = (
+            "native_action_crop" if is_picture else None
+        )
+        return 1, motion, "clean_916", "none"
 
     if role == "hero_outro":
         if is_voice or not is_picture:
@@ -354,12 +373,23 @@ def _author_look(
     return 3, motion, "super8_gate", transition
 
 
-def _keep_duration_ms(alignment: AlignmentResult, fallback: int | None) -> int:
+def _outer_speech_window(
+    alignment: AlignmentResult, fallback: int | None
+) -> tuple[int, int]:
+    """Inclusive/exclusive file window covering every keep-segment.
+
+    Internal pauses stay inside the window so mouth and voice stay locked.
+    No keep-segments → play from file t=0 for the fallback duration.
+    """
     if alignment.keep_segments:
-        return max(seg.end_ms - seg.start_ms for seg in alignment.keep_segments)
+        source_in = min(seg.start_ms for seg in alignment.keep_segments)
+        source_out = max(seg.end_ms for seg in alignment.keep_segments)
+        if source_out <= source_in:
+            source_out = source_in + 1
+        return source_in, source_out
     if fallback and fallback > 0:
-        return fallback
-    return 2000
+        return 0, fallback
+    return 0, 2000
 
 
 def _span_for_ms(

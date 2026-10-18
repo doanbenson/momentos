@@ -68,6 +68,10 @@ class CutClip(BaseModel):
     order: int
     start_ms: int | None = Field(default=None, alias="startMs")
     end_ms: int | None = Field(default=None, alias="endMs")
+    # File window (inclusive/exclusive). Timeline startMs/endMs stay output placement.
+    # Photos are not seeks: sourceInMs is 0 and sourceOutMs is the hold length.
+    source_in_ms: int = Field(default=0, ge=0, alias="sourceInMs")
+    source_out_ms: int | None = Field(default=None, alias="sourceOutMs")
     role: CutClipRole
     act: CutClipAct
     motion_preset: CutMotionPreset | None = Field(default=None, alias="motionPreset")
@@ -81,6 +85,14 @@ class CutClip(BaseModel):
                 raise ValueError("startMs/endMs must be non-negative")
             if self.end_ms <= self.start_ms:
                 raise ValueError("endMs must be > startMs")
+            if self.source_out_ms is None:
+                # Hold / file-from-zero clips: source length matches the timeline slot.
+                self.source_out_ms = self.end_ms - self.start_ms
+        if self.source_out_ms is not None:
+            if self.source_out_ms < 0:
+                raise ValueError("sourceOutMs must be non-negative")
+            if self.source_out_ms <= self.source_in_ms:
+                raise ValueError("sourceOutMs must be > sourceInMs")
         return self
 
 

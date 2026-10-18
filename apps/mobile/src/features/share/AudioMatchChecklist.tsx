@@ -40,7 +40,7 @@ export function AudioMatchChecklist() {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radius.sm,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.outline,
     padding: space.lg,
@@ -55,9 +55,15 @@ const styles = StyleSheet.create({
   },
   num: {
     fontFamily: fonts.labelBold,
-    fontSize: 14,
-    color: colors.primary,
-    width: 20,
+    fontSize: 12,
+    color: colors.onPrimary,
+    width: 22,
+    height: 22,
+    lineHeight: 22,
+    textAlign: "center",
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
+    overflow: "hidden",
   },
   step: {
     ...typography.body,
