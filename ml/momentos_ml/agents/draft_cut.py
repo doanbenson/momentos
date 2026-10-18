@@ -6,7 +6,11 @@ import logging
 from typing import Any
 
 from momentos_ml.agents import gemini_planner
-from momentos_ml.agents.director import DirectorPlan, plan_cut as director_plan_cut
+from momentos_ml.agents.director import (
+    DirectorPlan,
+    PlacementImpossibleError,
+    plan_cut as director_plan_cut,
+)
 from momentos_ml.align.aligner import AlignmentResult, align_reflection
 from momentos_ml.beat.grid import BeatGrid, build_beat_grid, load_edit_audio_bytes
 from momentos_ml.beat.snap import (
@@ -158,6 +162,7 @@ def _plan_snap_validate(
                 asset_order=asset_order,
                 repair_note=repair_note,
             )
+            _assert_place_all_once(plan.placements, features)
             clips = snap_to_grid(plan.placements, grid, features)
             markers = snap_markers(plan.markers, grid)
             captions = _timeline_captions(plan, clips)
@@ -169,6 +174,9 @@ def _plan_snap_validate(
                 markers=markers,
                 version=version,
             )
+        except PlacementImpossibleError:
+            # Place-all-once failures are not repairable by re-prompting (ADR 0017).
+            raise
         except (SnapError, ValueError, gemini_planner.GeminiPlannerError) as e:
             last_err = e
             repair_note = str(e)
@@ -176,6 +184,23 @@ def _plan_snap_validate(
     raise RuntimeError(
         f"Cut draft failed after {MAX_REPAIR_ATTEMPTS + 1} attempts: {last_err}"
     ) from last_err
+
+
+def _assert_place_all_once(
+    placements: list[PlannerPlacement], features: list[AssetFeature]
+) -> None:
+    """Every Moment Asset appears exactly once (ADR 0017)."""
+    placed = [p.asset_id for p in placements]
+    expected = {f.asset_id for f in features}
+    if set(placed) != expected:
+        missing = sorted(expected - set(placed))
+        raise PlacementImpossibleError(
+            f"cannot place all Assets once; missing={missing} (place-all-once)"
+        )
+    if len(placed) != len(set(placed)):
+        raise PlacementImpossibleError(
+            "multi-cycle Asset reuse is not allowed in MVP (place-all-once)"
+        )
 
 
 def _timeline_captions(plan: DirectorPlan, clips: list) -> list:

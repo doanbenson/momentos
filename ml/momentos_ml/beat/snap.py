@@ -10,8 +10,12 @@ from momentos_ml.styles.song_pick import HERO_OUTRO_SPAN_BEATS, NOMINAL_BPM
 from momentos_ml.validate.cut_schema import (
     CutCaption,
     CutClip,
+    CutClipAct,
     CutClipRole,
     CutMarker,
+    CutMotionPreset,
+    CutTransitionIn,
+    CutVisualStyle,
     clip_field_defaults_for_role,
 )
 
@@ -26,6 +30,15 @@ class PlannerPlacement(BaseModel):
     start_beat: int = Field(ge=0)
     end_beat: int = Field(ge=1)
     role: CutClipRole = "montage"
+    # Optional planner-authored look fields (ADR 0015). When act is set, snap trusts
+    # motionPreset/visualStyle/transitionIn as authored (motionPreset may be null for voice).
+    # When act is omitted, snap fills role→field defaults for older/Gemini planners.
+    act: CutClipAct | None = None
+    motion_preset: CutMotionPreset | None = Field(default=None, alias="motionPreset")
+    visual_style: CutVisualStyle | None = Field(default=None, alias="visualStyle")
+    transition_in: CutTransitionIn | None = Field(default=None, alias="transitionIn")
+
+    model_config = {"populate_by_name": True}
 
 
 class SnapError(ValueError):
@@ -44,8 +57,9 @@ def snap_to_grid(
     - start_beat / end_beat index into BeatGrid.beat_ms; end exclusive.
     - Durations must be > 0; timeline must be non-decreasing by order.
     - Video/voice windows trimmed to ≤ source duration_ms when known.
-    - role is carried from the planner (director); snap does not invent roles
-      except a last-clip hero_outro safety net for older planners.
+    - role + Act / Motion / Visual / transitionIn are carried from the planner;
+      snap fills role defaults only when the planner omitted them.
+    - motionPreset is required on picture (photo/video) clips (ADR 0015).
     """
     if not grid.beat_ms:
         raise SnapError("BeatGrid has no beats")
@@ -98,6 +112,30 @@ def snap_to_grid(
                     )
 
         defaults = clip_field_defaults_for_role(p.role)
+        if p.act is not None:
+            act = p.act
+            motion = p.motion_preset
+            visual = (
+                p.visual_style if p.visual_style is not None else defaults.visual_style
+            )
+            transition = (
+                p.transition_in
+                if p.transition_in is not None
+                else defaults.transition_in
+            )
+        else:
+            act = defaults.act
+            motion = defaults.motion_preset
+            visual = defaults.visual_style
+            transition = defaults.transition_in
+
+
+        if feat and feat.type in ("photo", "video") and motion is None:
+            raise SnapError(
+                f"asset {p.asset_id}: motionPreset required on picture clips "
+                f"(type={feat.type})"
+            )
+
         clips.append(
             CutClip(
                 assetId=p.asset_id,
@@ -105,10 +143,10 @@ def snap_to_grid(
                 startMs=start_ms,
                 endMs=end_ms,
                 role=p.role,
-                act=defaults.act,
-                motionPreset=defaults.motion_preset,
-                visualStyle=defaults.visual_style,
-                transitionIn=defaults.transition_in,
+                act=act,
+                motionPreset=motion,
+                visualStyle=visual,
+                transitionIn=transition,
             )
         )
 
@@ -125,6 +163,12 @@ def snap_to_grid(
     if clips and not any(c.role == "hero_outro" for c in clips):
         last = clips[-1]
         defaults = clip_field_defaults_for_role("hero_outro")
+        feat = by_id.get(last.asset_id)
+        motion = defaults.motion_preset
+        visual = defaults.visual_style
+        if feat and feat.type == "voice":
+            motion = None
+            visual = "clean_916"
         clips[-1] = CutClip(
             assetId=last.asset_id,
             order=last.order,
@@ -132,8 +176,8 @@ def snap_to_grid(
             endMs=last.end_ms,
             role="hero_outro",
             act=defaults.act,
-            motionPreset=defaults.motion_preset,
-            visualStyle=defaults.visual_style,
+            motionPreset=motion,
+            visualStyle=visual,
             transitionIn=defaults.transition_in,
         )
 

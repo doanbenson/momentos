@@ -72,3 +72,49 @@ def test_snap_rejects_invalid_range():
             [PlannerPlacement(asset_id="a1", start_beat=2, end_beat=2)],
             grid,
         )
+
+
+def test_snap_requires_motion_preset_on_picture_clips():
+    """Picture Assets must carry motionPreset when planner authors look fields (ADR 0015)."""
+    grid = _grid([0, 500, 1000, 1500, 2000])
+    features = [
+        AssetFeature(asset_id="p1", type="photo", intake_order=0),
+    ]
+    placements = [
+        PlannerPlacement(
+            asset_id="p1",
+            start_beat=0,
+            end_beat=2,
+            role="montage",
+            act=2,
+            motionPreset=None,
+            visualStyle="clean_916",
+            transitionIn="hard_cut",
+        )
+    ]
+    with pytest.raises(SnapError, match="motionPreset"):
+        snap_to_grid(placements, grid, features)
+
+
+def test_snap_allows_null_motion_preset_on_voice():
+    grid = _grid([0, 500, 1000, 1500, 2000])
+    features = [
+        AssetFeature(
+            asset_id="v1", type="voice", intake_order=0, duration_ms=2000
+        ),
+    ]
+    placements = [
+        PlannerPlacement(
+            asset_id="v1",
+            start_beat=0,
+            end_beat=4,
+            role="hero_outro",
+            act=3,
+            motionPreset=None,
+            visualStyle="clean_916",
+            transitionIn="none",
+        )
+    ]
+    clips = snap_to_grid(placements, grid, features)
+    assert clips[0].motion_preset is None
+    assert clips[0].visual_style == "clean_916"

@@ -17,13 +17,17 @@ Rules:
 - Output ONLY valid JSON matching the schema (no markdown).
 - Emit beat indices only — never milliseconds.
 - end_beat is exclusive: clip covers beats [start_beat, end_beat).
-- Prefer photo holds of about {photo_beats} beats for non-finale montage clips.
+- Prefer photo holds of about {photo_beats} beats for non-finale montage clips;
+  shorten holds to the minimum legal span (1 beat) before giving up.
+- Place EVERY intake Asset at least once. Do not drop assets. Do not reuse the
+  same Asset multiple times. If placement is impossible even at minimum spans,
+  the pipeline will fail — do not emit a partial plan.
 - The FINAL placement must be an exclusive {hero_beats}-beat span
   [start_beat, start_beat+{hero_beats}) — this is the hero_outro; do not use a
   {photo_beats}-beat hold for the last clip.
 - Video/voice spans must fit within the asset duration when duration_ms is given
   (approximate: assume ~{ms_per_beat}ms per beat at {bpm} BPM if unsure).
-- Use assets in a sensible narrative order; you may drop weak assets if time is short.
+- Use assets in a sensible narrative order.
 - Voice assets are VO over the Edit Audio bed — prefer not to truncate mid-word.
 - Do not invent asset ids.
 """.format(
