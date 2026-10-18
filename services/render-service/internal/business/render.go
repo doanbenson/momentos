@@ -14,6 +14,8 @@ import (
 
 	"github.com/doanbenson/momentos/services/render-service/internal/database"
 	"github.com/doanbenson/momentos/services/render-service/internal/ffmpeg"
+	"github.com/doanbenson/momentos/services/render-service/internal/songpick"
+	"github.com/doanbenson/momentos/services/render-service/internal/systemmedia"
 )
 
 const defaultSongPickID = "live-a-life-you-will-remember"
@@ -144,12 +146,18 @@ func (s *Service) buildPlan(job *database.Job, scratch string) (ffmpeg.Plan, err
 
 	// Prefer CutJSON clips when present; else require assets alone is insufficient.
 	var clips []ffmpeg.ClipInput
+	var captions []ffmpeg.Caption
+	var markers []ffmpeg.Marker
+	styleProfileID := ""
 	if len(job.CutJSON) > 0 {
-		wireClips, wErr := parseCutClips(job.CutJSON)
+		parsed, wErr := parseCutJSON(job.CutJSON)
 		if wErr != nil {
 			return ffmpeg.Plan{}, Terminal("cut JSON: %v", wErr)
 		}
-		for _, c := range wireClips {
+		styleProfileID = parsed.StyleProfileID
+		captions = parsed.Captions
+		markers = resolveMarkerPaths(parsed.Markers, byID, scratch, s)
+		for _, c := range parsed.Clips {
 			a, ok := byID[c.AssetID]
 			if !ok {
 				return ffmpeg.Plan{}, Terminal("asset %s: not on job assets list", c.AssetID)
@@ -165,18 +173,25 @@ func (s *Service) buildPlan(job *database.Job, scratch string) (ffmpeg.Plan, err
 				EndMs:     c.EndMs,
 				Type:      ffmpeg.AssetType(a.Type),
 				LocalPath: local,
+				Role:      c.Role,
 			})
 		}
 	} else {
 		return ffmpeg.Plan{}, Terminal("job missing Cut JSON clips")
 	}
+	if styleProfileID == "" && cutImpliesLifeOnFilm(clips, captions, markers) {
+		styleProfileID = songpick.StyleProfileID
+	}
 
 	plan := ffmpeg.Plan{
-		MomentID:      job.MomentID,
-		CutID:         job.CutID,
-		CutVersion:    job.CutVersion,
-		EditAudioPath: editPath,
-		Clips:         clips,
+		MomentID:       job.MomentID,
+		CutID:          job.CutID,
+		CutVersion:     job.CutVersion,
+		EditAudioPath:  editPath,
+		StyleProfileID: styleProfileID,
+		Clips:          clips,
+		Captions:       captions,
+		Markers:        markers,
 	}
 	if err := plan.Validate(); err != nil {
 		return ffmpeg.Plan{}, Terminal("%s", err.Error())
@@ -223,23 +238,80 @@ func (s *Service) downloadAsset(a database.AssetRef, scratch string) (string, er
 }
 
 type cutClip struct {
-	AssetID string `json:"assetId"`
-	Order   int    `json:"order"`
-	StartMs int    `json:"startMs"`
-	EndMs   int    `json:"endMs"`
+	AssetID string          `json:"assetId"`
+	Order   int             `json:"order"`
+	StartMs int             `json:"startMs"`
+	EndMs   int             `json:"endMs"`
+	Role    ffmpeg.ClipRole `json:"role"`
 }
 
-func parseCutClips(cutJSON []byte) ([]cutClip, error) {
-	var wrap struct {
-		Clips []cutClip `json:"clips"`
-	}
-	if err := json.Unmarshal(cutJSON, &wrap); err != nil {
-		return nil, err
+type cutJSON struct {
+	StyleProfileID string           `json:"styleProfileId"`
+	Clips          []cutClip        `json:"clips"`
+	Captions       []ffmpeg.Caption `json:"captions"`
+	Markers        []ffmpeg.Marker  `json:"markers"`
+}
+
+func parseCutJSON(raw []byte) (cutJSON, error) {
+	var wrap cutJSON
+	if err := json.Unmarshal(raw, &wrap); err != nil {
+		return cutJSON{}, err
 	}
 	if len(wrap.Clips) == 0 {
-		return nil, fmt.Errorf("clips empty")
+		return cutJSON{}, fmt.Errorf("clips empty")
 	}
-	return wrap.Clips, nil
+	return wrap, nil
+}
+
+func cutImpliesLifeOnFilm(clips []ffmpeg.ClipInput, captions []ffmpeg.Caption, markers []ffmpeg.Marker) bool {
+	if len(captions) > 0 || len(markers) > 0 {
+		return true
+	}
+	for _, c := range clips {
+		if c.Role != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveMarkerPaths fills LocalPath for SFX/flash markers via systemmedia pack (Track E).
+// Missing files are stubbed (empty path); graph still runs generated flash / skips SFX input.
+func resolveMarkerPaths(markers []ffmpeg.Marker, byID map[string]database.AssetRef, scratch string, s *Service) []ffmpeg.Marker {
+	out := make([]ffmpeg.Marker, len(markers))
+	copy(out, markers)
+	root := systemmedia.DefaultRoot()
+	for i := range out {
+		m := &out[i]
+		if m.LocalPath != "" {
+			continue
+		}
+		id := m.SystemMediaID
+		if id == "" {
+			switch m.Type {
+			case ffmpeg.MarkerFlash:
+				id = "flash"
+			case ffmpeg.MarkerSFX:
+				id = "sfx-shutter"
+			default:
+				continue
+			}
+			m.SystemMediaID = id
+		}
+		if path, err := systemmedia.Resolve(root, id); err == nil {
+			m.LocalPath = path
+			continue
+		}
+		// Optional job asset map fallback (dev wiring).
+		if a, ok := byID[id]; ok {
+			if local, err := s.downloadAsset(a, scratch); err == nil {
+				m.LocalPath = local
+				continue
+			}
+		}
+		log.Printf("render-service: system media %s unresolved (stub ok)", id)
+	}
+	return out
 }
 
 func downloadURL(client *http.Client, rawURL, dest string) error {

@@ -8,6 +8,9 @@ import (
 // buildFilterComplex produces one filter_complex graph for picture + audio.
 //
 // Picture: scale/pad (or Ken-Burns for photos) → 1080x1920@30 → concat hard-cuts.
+// Act 1: burn Cut captions via drawtext.
+// Act 2: marker flash/SFX overlays (system media paths when resolved).
+// Act 3: Style Profile look on hero_outro (warm grade, Super 8 border, 18fps posterize, no stretch).
 // Audio: Edit Audio bed trimmed to picture duration + VO adelay + sidechain ducking stub.
 func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string, err error) {
 	pics := plan.PictureClips()
@@ -16,8 +19,9 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 		return "", "", "", fmt.Errorf("no picture clips")
 	}
 
-	// Input layout: [0..len(pics)-1] picture, then voices, then Edit Audio last.
-	editIdx := len(pics) + len(voices)
+	sfxMarkers := sfxMarkersWithPath(plan.Markers)
+	// Input layout: pictures, voices, SFX system media, Edit Audio last.
+	editIdx := len(pics) + len(voices) + len(sfxMarkers)
 	var b strings.Builder
 	vLabels := make([]string, 0, len(pics))
 
@@ -26,13 +30,19 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 		switch c.Type {
 		case AssetPhoto:
 			frames := msToFrames(c.DurationMs())
-			// scale up then zoompan Ken-Burns; output fixed canvas @ 30fps
+			aspect := "increase"
+			cropOrPad := fmt.Sprintf("crop=%d:%d", CanvasWidth, CanvasHeight)
+			if c.Role == RoleHeroOutro {
+				// Act 3: no stretch — letterbox instead of crop-upscale.
+				aspect = "decrease"
+				cropOrPad = fmt.Sprintf("pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black", CanvasWidth, CanvasHeight)
+			}
 			fmt.Fprintf(&b,
-				"[%d:v]scale=%d:%d:force_original_aspect_ratio=increase,"+
-					"crop=%d:%d,setsar=1,format=yuv420p,"+
+				"[%d:v]scale=%d:%d:force_original_aspect_ratio=%s,"+
+					"%s,setsar=1,format=yuv420p,"+
 					"zoompan=z='min(1.0+0.0015*on,1.12)':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"+
 					"d=%d:s=%dx%d:fps=%d[%s];",
-				i, CanvasWidth, CanvasHeight, CanvasWidth, CanvasHeight,
+				i, CanvasWidth, CanvasHeight, aspect, cropOrPad,
 				frames, CanvasWidth, CanvasHeight, FrameRate, label,
 			)
 		case AssetVideo:
@@ -48,14 +58,24 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 		default:
 			return "", "", "", fmt.Errorf("picture clip type %q not supported", c.Type)
 		}
+		if c.Role == RoleHeroOutro && plan.StyleProfileID == StyleProfileLifeOnFilmV1 {
+			styled := label + "s"
+			appendAct3Style(&b, label, styled)
+			label = styled
+		}
 		vLabels = append(vLabels, "["+label+"]")
 	}
 
+	videoSrc := "vbase"
 	if len(vLabels) == 1 {
-		fmt.Fprintf(&b, "%scopy[vout];", vLabels[0])
+		fmt.Fprintf(&b, "%scopy[%s];", vLabels[0], videoSrc)
 	} else {
-		fmt.Fprintf(&b, "%sconcat=n=%d:v=1:a=0[vout];", strings.Join(vLabels, ""), len(vLabels))
+		fmt.Fprintf(&b, "%sconcat=n=%d:v=1:a=0[%s];", strings.Join(vLabels, ""), len(vLabels), videoSrc)
 	}
+
+	videoSrc = appendCaptionBurns(&b, videoSrc, plan.Captions)
+	videoSrc = appendFlashOverlays(&b, videoSrc, plan.Markers)
+	fmt.Fprintf(&b, "[%s]copy[vout];", videoSrc)
 
 	totalSec := msToSec(plan.PictureDurationMs())
 
@@ -66,12 +86,24 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 		editIdx, totalSec,
 	)
 
-	if len(voices) == 0 {
-		b.WriteString("[bed]anull[aout]")
-		return strings.TrimSuffix(b.String(), ";"), "vout", "aout", nil
+	voAndSFX := make([]string, 0, len(voices)+len(sfxMarkers)+len(pics))
+	// Act 1: Reflection talking-head video contributes VO from its audio stream.
+	timelineMs := 0
+	refVO := 0
+	for i, c := range pics {
+		if c.Role == RoleReflection && c.Type == AssetVideo {
+			label := fmt.Sprintf("refvo%d", refVO)
+			refVO++
+			durSec := msToSec(c.DurationMs())
+			fmt.Fprintf(&b,
+				"[%d:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"+
+					"atrim=0:%s,asetpts=PTS-STARTPTS,adelay=%d|%d[%s];",
+				i, durSec, timelineMs, timelineMs, label,
+			)
+			voAndSFX = append(voAndSFX, "["+label+"]")
+		}
+		timelineMs += c.DurationMs()
 	}
-
-	voLabels := make([]string, 0, len(voices))
 	for i, c := range voices {
 		inIdx := len(pics) + i
 		label := fmt.Sprintf("vo%d", i)
@@ -82,18 +114,34 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 				"atrim=0:%s,asetpts=PTS-STARTPTS,adelay=%d|%d[%s];",
 			inIdx, durSec, c.StartMs, c.StartMs, label,
 		)
-		voLabels = append(voLabels, "["+label+"]")
+		voAndSFX = append(voAndSFX, "["+label+"]")
+	}
+	for i, m := range sfxMarkers {
+		inIdx := len(pics) + len(voices) + i
+		label := fmt.Sprintf("sfx%d", i)
+		at := SnapMsToFrame(m.AtMs)
+		fmt.Fprintf(&b,
+			"[%d:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"+
+				"asetpts=PTS-STARTPTS,adelay=%d|%d[%s];",
+			inIdx, at, at, label,
+		)
+		voAndSFX = append(voAndSFX, "["+label+"]")
+	}
+
+	if len(voAndSFX) == 0 {
+		b.WriteString("[bed]anull[aout]")
+		return strings.TrimSuffix(b.String(), ";"), "vout", "aout", nil
 	}
 
 	voMix := "vos"
-	if len(voLabels) == 1 {
-		fmt.Fprintf(&b, "%scopy[%s];", voLabels[0], voMix)
+	if len(voAndSFX) == 1 {
+		fmt.Fprintf(&b, "%scopy[%s];", voAndSFX[0], voMix)
 	} else {
 		fmt.Fprintf(&b, "%samix=inputs=%d:duration=longest:dropout_transition=0[%s];",
-			strings.Join(voLabels, ""), len(voLabels), voMix)
+			strings.Join(voAndSFX, ""), len(voAndSFX), voMix)
 	}
 
-	// Ducking stub: sidechaincompress bed under VO, then remixed with VO
+	// Ducking stub: sidechaincompress bed under VO/SFX, then remixed
 	fmt.Fprintf(&b,
 		"[bed][%s]sidechaincompress=threshold=0.05:ratio=8:attack=50:release=300:makeup=1[ducked];"+
 			"[ducked][%s]amix=inputs=2:duration=first:dropout_transition=0[aout]",
@@ -101,6 +149,84 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 	)
 
 	return b.String(), "vout", "aout", nil
+}
+
+// appendAct3Style applies life-on-film-v1 look: warm grade, Super 8 border, 18fps posterize (no stretch).
+func appendAct3Style(b *strings.Builder, inLabel, outLabel string) {
+	fmt.Fprintf(b,
+		"[%s]eq=saturation=1.12:gamma_r=1.06:gamma_g=1.03:gamma_b=0.94,"+
+			"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.85:t=28,"+
+			"fps=%d,fps=%d[%s];",
+		inLabel, Act3PosterizeFPS, FrameRate, outLabel,
+	)
+}
+
+func appendCaptionBurns(b *strings.Builder, inLabel string, captions []Caption) string {
+	cur := inLabel
+	for i, c := range captions {
+		next := fmt.Sprintf("vcapt%d", i)
+		start := msToSec(c.StartMs)
+		end := msToSec(c.EndMs)
+		text := escapeDrawtext(c.Text)
+		fmt.Fprintf(b,
+			"[%s]drawtext=text='%s':fontsize=52:fontcolor=white:borderw=3:bordercolor=black@"+
+				"0.7:x=(w-text_w)/2:y=h*0.78:enable='between(t\\,%s\\,%s)'[%s];",
+			cur, text, start, end, next,
+		)
+		cur = next
+	}
+	return cur
+}
+
+func appendFlashOverlays(b *strings.Builder, inLabel string, markers []Marker) string {
+	cur := inLabel
+	flashIdx := 0
+	for _, m := range markers {
+		// chorus_drop is a sync target (±1 frame via SnapMsToFrame); flash executes the accent.
+		if m.Type != MarkerFlash {
+			continue
+		}
+		at := SnapMsToFrame(m.AtMs)
+		frameMs := oneFrameMs()
+		start := msToSec(at)
+		end := msToSec(at + frameMs)
+		next := fmt.Sprintf("vflash%d", flashIdx)
+		flashIdx++
+		// Generated white flash (system media overlay path optional; stubs OK if E not done).
+		fmt.Fprintf(b,
+			"color=c=white:s=%dx%d:d=%s[flashsrc%d];"+
+				"[%s][flashsrc%d]overlay=0:0:enable='between(t\\,%s\\,%s)'[%s];",
+			CanvasWidth, CanvasHeight, msToSec(frameMs), flashIdx-1,
+			cur, flashIdx-1, start, end, next,
+		)
+		cur = next
+	}
+	return cur
+}
+
+func sfxMarkersWithPath(markers []Marker) []Marker {
+	var out []Marker
+	for _, m := range markers {
+		if m.Type == MarkerSFX && m.LocalPath != "" {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func escapeDrawtext(s string) string {
+	r := strings.NewReplacer(
+		`\`, `\\`,
+		`'`, `\'`,
+		`:`, `\:`,
+		`%`, `\%`,
+	)
+	return r.Replace(s)
+}
+
+func oneFrameMs() int {
+	ms := MsPerFrame + 0.5
+	return int(ms)
 }
 
 func msToSec(ms int) string {
@@ -116,7 +242,8 @@ func msToFrames(ms int) int {
 	return frames
 }
 
-// appendInputArgs writes -i (and photo loop flags) in graph order: pictures, voices, Edit Audio.
+// appendInputArgs writes -i (and photo loop flags) in graph order:
+// pictures, voices, SFX system media, Edit Audio.
 func appendInputArgs(args []string, plan Plan) []string {
 	for _, c := range plan.PictureClips() {
 		if c.Type == AssetPhoto {
@@ -128,6 +255,9 @@ func appendInputArgs(args []string, plan Plan) []string {
 	}
 	for _, c := range plan.VoiceClips() {
 		args = append(args, "-i", c.LocalPath)
+	}
+	for _, m := range sfxMarkersWithPath(plan.Markers) {
+		args = append(args, "-i", m.LocalPath)
 	}
 	args = append(args, "-i", plan.EditAudioPath)
 	return args

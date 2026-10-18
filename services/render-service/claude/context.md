@@ -27,8 +27,8 @@ API (internal/api) — status / health
 
 | File | Role |
 |---|---|
-| `internal/ffmpeg/plan.go` | `Plan` / `ClipInput`, canvas constants, validation |
-| `internal/ffmpeg/graph.go` | Single `filter_complex` builder (Ken-Burns, trim, ducking stub) |
+| `internal/ffmpeg/plan.go` | `Plan` / roles / captions / markers; `life-on-film-v1` Validate |
+| `internal/ffmpeg/graph.go` | Act 1 captions + Reflection VO; Act 2 flash/SFX; Act 3 grade/Super 8/18fps |
 | `internal/ffmpeg/runner.go` | Invokes local ffmpeg → H.264/AAC MP4; no placeholder on failure |
 
 ## Jobs / events

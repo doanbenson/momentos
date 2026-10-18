@@ -96,20 +96,24 @@ func (r *Runner) Render(plan Plan, outPath string) error {
 
 // CutWire is the Cut JSON shape plus local path map for RenderFromCut.
 type CutWire struct {
-	ID         string         `json:"id"`
-	MomentID   string         `json:"momentId"`
-	Version    int            `json:"version"`
-	SongPickID string         `json:"songPickId"`
-	Clips      []CutWireClip  `json:"clips"`
-	Assets     map[string]AssetLocal `json:"assets"` // assetId → local resolve
-	EditAudio  string         `json:"editAudioPath"`
+	ID             string                `json:"id"`
+	MomentID       string                `json:"momentId"`
+	Version        int                   `json:"version"`
+	SongPickID     string                `json:"songPickId"`
+	StyleProfileID string                `json:"styleProfileId"`
+	Clips          []CutWireClip         `json:"clips"`
+	Captions       []Caption             `json:"captions"`
+	Markers        []Marker              `json:"markers"`
+	Assets         map[string]AssetLocal `json:"assets"` // assetId → local resolve
+	EditAudio      string                `json:"editAudioPath"`
 }
 
 type CutWireClip struct {
-	AssetID string `json:"assetId"`
-	Order   int    `json:"order"`
-	StartMs int    `json:"startMs"`
-	EndMs   int    `json:"endMs"`
+	AssetID string   `json:"assetId"`
+	Order   int      `json:"order"`
+	StartMs int      `json:"startMs"`
+	EndMs   int      `json:"endMs"`
+	Role    ClipRole `json:"role"`
 }
 
 type AssetLocal struct {
@@ -132,11 +136,14 @@ func (r *Runner) RenderFromCut(cutJSON []byte, outPath string) error {
 
 func planFromWire(w CutWire) (Plan, error) {
 	p := Plan{
-		MomentID:      w.MomentID,
-		CutID:         w.ID,
-		CutVersion:    w.Version,
-		EditAudioPath: w.EditAudio,
-		Clips:         make([]ClipInput, 0, len(w.Clips)),
+		MomentID:       w.MomentID,
+		CutID:          w.ID,
+		CutVersion:     w.Version,
+		EditAudioPath:  w.EditAudio,
+		StyleProfileID: w.StyleProfileID,
+		Clips:          make([]ClipInput, 0, len(w.Clips)),
+		Captions:       append([]Caption(nil), w.Captions...),
+		Markers:        append([]Marker(nil), w.Markers...),
 	}
 	for _, c := range w.Clips {
 		a, ok := w.Assets[c.AssetID]
@@ -150,6 +157,7 @@ func planFromWire(w CutWire) (Plan, error) {
 			EndMs:     c.EndMs,
 			Type:      a.Type,
 			LocalPath: a.LocalPath,
+			Role:      c.Role,
 		})
 	}
 	return p, nil
