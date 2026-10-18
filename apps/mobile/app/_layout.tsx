@@ -16,6 +16,9 @@ import {
   SpaceGrotesk_500Medium,
   SpaceGrotesk_700Bold,
 } from "@expo-google-fonts/space-grotesk";
+import { CompositionStatusPill } from "@/features/moment/CompositionStatusPill";
+import { MomentJobsProvider } from "@/features/moment/MomentJobsProvider";
+import { ReadyToast } from "@/features/moment/ReadyToast";
 import { AuthProvider } from "@/lib/auth";
 import { colors } from "@/theme/tokens";
 
@@ -52,27 +55,27 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: colors.background },
-          animation: "slide_from_right",
-        }}
-      >
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(onboarding)" />
-        <Stack.Screen
-          name="(processing)"
-          options={{
-            gestureEnabled: false,
-            headerBackVisible: false,
-          }}
-        />
-        <Stack.Screen name="(editor)" />
-        <Stack.Screen name="(share)" />
-      </Stack>
+      <MomentJobsProvider>
+        <StatusBar style="light" />
+        <View style={{ flex: 1, backgroundColor: colors.background }}>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: colors.background },
+              animation: "slide_from_right",
+            }}
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="(auth)" />
+            <Stack.Screen name="(onboarding)" />
+            <Stack.Screen name="(processing)" />
+            <Stack.Screen name="(editor)" />
+            <Stack.Screen name="(share)" />
+          </Stack>
+          <CompositionStatusPill />
+          <ReadyToast />
+        </View>
+      </MomentJobsProvider>
     </AuthProvider>
   );
 }

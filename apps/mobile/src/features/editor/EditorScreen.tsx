@@ -70,6 +70,7 @@ export function EditorScreen() {
     [clips],
   );
 
+  /** Preserve act / role / motion / look / transitionIn on local reorder. */
   function clipsInOrder(ids: string[]): CutClip[] {
     const byId = new Map(clips.map((c) => [c.assetId, c]));
     return ids.map((assetId, order) => {
