@@ -54,9 +54,9 @@ def clip_field_defaults_for_role(role: CutClipRole) -> ClipFieldDefaults:
             transitionIn="hard_cut",
         )
     return ClipFieldDefaults(
-        act=2,
-        motionPreset="hook_slow_push",
-        visualStyle="clean_916",
+        act=3,
+        motionPreset="handheld_super8_drift",
+        visualStyle="super8_gate",
         transitionIn="hard_cut",
     )
 

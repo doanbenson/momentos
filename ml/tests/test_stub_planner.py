@@ -105,6 +105,8 @@ def test_draft_cut_with_stub_and_mock_audio():
             settings=settings,
         )
 
-    assert len(cut.clips) == 2
+    # <10 montage Assets → second cycle (2 unique → 4 clips).
+    assert len(cut.clips) == 4
     assert cut.clips[0].start_ms == 0
+    assert cut.clips[-1].role == "hero_outro"
     assert cut.version == 1

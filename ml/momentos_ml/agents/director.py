@@ -29,15 +29,6 @@ from momentos_ml.validate.cut_schema import (
 )
 from momentos_ml.vision.score import VisionScore
 
-# Deterministic stub Motion Presets for Act 2 picture clips (ADR 0015).
-_STUB_MONTAGE_MOTIONS: tuple[CutMotionPreset, ...] = (
-    "hook_slow_push",
-    "whip_punch_in",
-    "native_action_crop",
-    "handheld_super8_drift",
-)
-
-
 class PlacementImpossibleError(ValueError):
     """Every intake Asset cannot fit on the Beat Grid even at minimum legal spans."""
 
@@ -69,9 +60,10 @@ def plan_cut(
     """
     Stub director for CI / CUT_PLANNER=stub.
 
-    Place-all-once (ADR 0017): every Moment Asset appears ≥ once; shorten holds
-    to minimum legal Beat Grid spans before failing clearly. No silent drops,
-    no multi-cycle reuse.
+    Deterministic beat stepping (Life on Film):
+      Act 1 Reflection → Act 3 photo/clip cycle at PHOTO_HOLD_BEATS each,
+      final clip HERO_OUTRO_SPAN_BEATS. Every intake Asset appears ≥ once;
+      when fewer than 10 montage Assets, cycle a second time to fill music.
 
     Authors Act / Motion Preset / Visual Style / transitionIn (ADR 0015 / 0020).
     Emits j_cut / chorus_drop / flash markers as beat indices from timing
@@ -102,17 +94,17 @@ def plan_cut(
         if span is None:
             span = (0, min(PHOTO_HOLD_BEATS, n))
         start, end = span
-        # Leave room for montage place-all-once when montage Assets exist.
+        # Leave room for montage schedule when montage Assets exist.
         if montage_ids:
-            min_montage = _min_montage_beats(len(montage_ids))
+            sequence = _montage_sequence(montage_ids)
+            min_montage = _min_montage_beats(len(sequence))
             if end + min_montage > n:
-                # Shrink Reflection toward a legal min span before failing.
                 max_end = n - min_montage
                 if max_end <= start:
                     raise PlacementImpossibleError(
                         f"cannot place all {len(features)} Assets on a "
                         f"{n}-beat grid: Reflection + montage need more beats "
-                        f"than available (place-all-once)"
+                        f"than available"
                     )
                 end = _clamp_legal_end(start, max_end, n)
         placements.append(
@@ -130,7 +122,7 @@ def plan_cut(
 
     if montage_ids:
         placements.extend(
-            _place_montage_all_once(
+            _place_montage_cycle(
                 montage_ids=montage_ids,
                 by_id=by_id,
                 grid=grid,
@@ -167,18 +159,14 @@ def plan_cut(
             )
         )
 
-    # Final place-all-once check (no silent drops, no duplicates).
+    # Every intake Asset must appear ≥ once (cycling may reuse montage ids).
     placed_ids = [p.asset_id for p in placements]
     expected_ids = {f.asset_id for f in features}
-    if set(placed_ids) != expected_ids:
+    if not expected_ids.issubset(set(placed_ids)):
         missing = sorted(expected_ids - set(placed_ids))
         raise PlacementImpossibleError(
-            f"cannot place all Assets once; missing={missing} "
-            f"on a {n}-beat grid (place-all-once)"
-        )
-    if len(placed_ids) != len(set(placed_ids)):
-        raise PlacementImpossibleError(
-            "multi-cycle Asset reuse is not allowed in MVP (place-all-once)"
+            f"cannot place all Assets; missing={missing} "
+            f"on a {n}-beat grid"
         )
 
     markers = _plan_markers(
@@ -228,16 +216,29 @@ def _montage_order(
     ]
 
 
-def _min_montage_beats(montage_count: int) -> int:
-    """Minimum beats to place N montage Assets (body @ 1-beat + 4-beat hero)."""
-    if montage_count <= 0:
+# Cycle fill threshold: fewer unique montage Assets → second pass for music fill.
+_MONTAGE_CYCLE_THRESHOLD = 10
+
+
+def _montage_sequence(montage_ids: list[str]) -> list[str]:
+    """Deterministic schedule: unique order, optionally doubled when short."""
+    if not montage_ids:
+        return []
+    if len(montage_ids) < _MONTAGE_CYCLE_THRESHOLD:
+        return list(montage_ids) + list(montage_ids)
+    return list(montage_ids)
+
+
+def _min_montage_beats(sequence_count: int) -> int:
+    """Beats for a montage sequence (body @ PHOTO_HOLD + 4-beat hero)."""
+    if sequence_count <= 0:
         return 0
-    if montage_count == 1:
+    if sequence_count == 1:
         return HERO_OUTRO_SPAN_BEATS
-    return (montage_count - 1) + HERO_OUTRO_SPAN_BEATS
+    return (sequence_count - 1) * PHOTO_HOLD_BEATS + HERO_OUTRO_SPAN_BEATS
 
 
-def _place_montage_all_once(
+def _place_montage_cycle(
     *,
     montage_ids: list[str],
     by_id: dict[str, AssetFeature],
@@ -245,71 +246,55 @@ def _place_montage_all_once(
     cursor: int,
     total_assets: int,
 ) -> list[PlannerPlacement]:
+    """Place montage Assets on fixed 2-beat holds; last clip is 4-beat hero_outro."""
     n = len(grid.beat_ms)
+    sequence = _montage_sequence(montage_ids)
     available = n - cursor
-    need_min = _min_montage_beats(len(montage_ids))
-    if available < need_min:
-        raise PlacementImpossibleError(
-            f"cannot place all {total_assets} Assets on a {n}-beat grid: "
-            f"need ≥{need_min} beats after Reflection for {len(montage_ids)} "
-            f"montage Assets (have {available}); place-all-once"
-        )
-
-    body_ids = montage_ids[:-1]
-    hero_id = montage_ids[-1]
-    # Prefer PHOTO_HOLD_BEATS holds; shrink body to min legal (1) before failing.
+    need = _min_montage_beats(len(sequence))
+    # Prefer 2-beat holds; shrink body to 1-beat only when the grid is tight.
     body_hold = PHOTO_HOLD_BEATS
-    if len(body_ids) * body_hold + HERO_OUTRO_SPAN_BEATS > available:
+    if need > available:
+        need_min = (
+            HERO_OUTRO_SPAN_BEATS
+            if len(sequence) == 1
+            else (len(sequence) - 1) + HERO_OUTRO_SPAN_BEATS
+        )
+        if available < need_min:
+            raise PlacementImpossibleError(
+                f"cannot place all {total_assets} Assets on a {n}-beat grid: "
+                f"need ≥{need_min} beats after Reflection for {len(sequence)} "
+                f"montage slots (have {available})"
+            )
         body_hold = 1
 
     placements: list[PlannerPlacement] = []
     cur = cursor
-    for i, aid in enumerate(body_ids):
+    last = len(sequence) - 1
+    for i, aid in enumerate(sequence):
         feat = by_id.get(aid)
         if feat is None:
             raise PlacementImpossibleError(
-                f"montage Asset {aid} missing from features (place-all-once)"
+                f"montage Asset {aid} missing from features"
             )
-        end = cur + body_hold
-        if end + HERO_OUTRO_SPAN_BEATS > n:
+        hold = HERO_OUTRO_SPAN_BEATS if i == last else body_hold
+        end = cur + hold
+        if end > n:
             raise PlacementImpossibleError(
-                f"cannot place all {total_assets} Assets: ran out of Beat Grid "
-                f"room packing montage (place-all-once)"
+                f"cannot place montage schedule: ran out of Beat Grid room "
+                f"at slot {i}/{len(sequence)}"
             )
+        role: CutClipRole = "hero_outro" if i == last else "montage"
         placements.append(
             _placement(
                 asset_id=aid,
                 start_beat=cur,
                 end_beat=end,
-                role="montage",
+                role=role,
                 feat=feat,
                 montage_index=i,
             )
         )
         cur = end
-
-    feat = by_id.get(hero_id)
-    if feat is None:
-        raise PlacementImpossibleError(
-            f"hero Asset {hero_id} missing from features (place-all-once)"
-        )
-    start = cur
-    end = start + HERO_OUTRO_SPAN_BEATS
-    if end > n:
-        raise PlacementImpossibleError(
-            f"cannot place hero_outro ({HERO_OUTRO_SPAN_BEATS}-beat) for Asset "
-            f"{hero_id} on a {n}-beat grid (place-all-once)"
-        )
-    placements.append(
-        _placement(
-            asset_id=hero_id,
-            start_beat=start,
-            end_beat=end,
-            role="hero_outro",
-            feat=feat,
-            montage_index=len(body_ids),
-        )
-    )
     return placements
 
 
@@ -357,15 +342,16 @@ def _author_look(
             return 3, None, "clean_916", "none"
         return 3, "handheld_super8_drift", "super8_gate", "hard_cut"
 
-    # montage
+    # Act 3 photo/clip cycle — Life on Film look on every montage picture.
+    idx = montage_index or 0
     motion: CutMotionPreset | None = None
     if is_picture:
-        idx = montage_index or 0
-        motion = _STUB_MONTAGE_MOTIONS[idx % len(_STUB_MONTAGE_MOTIONS)]
-    transition: CutTransitionIn = (
-        "white_flash" if (montage_index or 0) == 0 else "hard_cut"
-    )
-    return 2, motion, "clean_916", transition
+        # First slot after Reflection: punch-in; rest: gate weave / no Ken Burns.
+        motion = "whip_punch_in" if idx == 0 else "handheld_super8_drift"
+    transition: CutTransitionIn = "hard_cut"
+    if idx == 0 or (idx > 0 and idx % 4 == 0):
+        transition = "white_flash"
+    return 3, motion, "super8_gate", transition
 
 
 def _keep_duration_ms(alignment: AlignmentResult, fallback: int | None) -> int:

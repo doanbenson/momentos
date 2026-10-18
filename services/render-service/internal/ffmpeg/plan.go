@@ -78,11 +78,12 @@ const (
 	FrameRate    = 30
 	// Act3PosterizeFPS is Style Profile life-on-film-v1 hold rate (no timeline stretch).
 	Act3PosterizeFPS = 18
-	// Super 8 gate inset on the 1080×1920 canvas (ADR / Style Profile life-on-film-v1).
-	Super8GateWidth  = 980
-	Super8GateHeight = 1306
-	// Act3CanvasPadColor is the letterbox behind the Super 8 gate.
-	Act3CanvasPadColor = "0x0A0A0A"
+	// Super 8 / vintage print gate inset on the 1080×1920 canvas (life-on-film-v1).
+	// 960×1280 is classic 3:4 vertical print ratio (@lifeonfilm.27).
+	Super8GateWidth  = 960
+	Super8GateHeight = 1280
+	// Act3CanvasPadColor is the warm-black letterbox behind the film print.
+	Act3CanvasPadColor = "0x0C0B0A"
 	// FlashFrames is white-flash duration (ADR 0021).
 	FlashFrames = 3
 	// JCutEditAudioVolume is Edit Audio level during J-cut pre-roll (ADR 0019).

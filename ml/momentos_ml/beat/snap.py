@@ -94,7 +94,18 @@ def snap_to_grid(
             )
 
         feat = by_id.get(p.asset_id)
-        if feat and feat.type in ("video", "voice") and feat.duration_ms is not None:
+        # Photos / 0ms sources hold the full target beat window (source_in=0,
+        # source_out=target_duration). Do not trim or raise SnapError.
+        # (extract.py maps stills / 0ms → a synthetic positive duration for validators.)
+        holdable_source = feat is not None and (
+            feat.type == "photo" or feat.duration_ms == 0
+        )
+        if (
+            feat
+            and feat.type in ("video", "voice")
+            and feat.duration_ms is not None
+            and not holdable_source
+        ):
             max_end = start_ms + feat.duration_ms
             if end_ms > max_end:
                 # hero_outro must stay a legal 4-beat span — do not silently shrink.

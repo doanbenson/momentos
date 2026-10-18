@@ -118,3 +118,25 @@ def test_snap_allows_null_motion_preset_on_voice():
     clips = snap_to_grid(placements, grid, features)
     assert clips[0].motion_preset is None
     assert clips[0].visual_style == "clean_916"
+
+
+def test_snap_photo_holds_full_beat_window_not_source_trimmed():
+    """Photos (and 0ms sources) hold the target beat window — no SnapError."""
+    grid = _grid([0, 500, 1000, 1500, 2000])
+    features = [
+        AssetFeature(
+            asset_id="p1", type="photo", intake_order=0, duration_ms=10_000
+        ),
+        AssetFeature(
+            asset_id="v0", type="video", intake_order=1, duration_ms=0
+        ),
+    ]
+    placements = [
+        PlannerPlacement(asset_id="p1", start_beat=0, end_beat=2, role="montage"),
+        PlannerPlacement(
+            asset_id="v0", start_beat=2, end_beat=4, role="hero_outro"
+        ),
+    ]
+    clips = snap_to_grid(placements, grid, features)
+    assert clips[0].start_ms == 0 and clips[0].end_ms == 1000
+    assert clips[1].start_ms == 1000 and clips[1].end_ms == 2000

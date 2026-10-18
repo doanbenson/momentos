@@ -158,13 +158,16 @@ func TestBuildFilterComplex_Act3HeroOutroStyleProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, need := range []string{
-		"eq=saturation=",                       // warm Kodak grade
-		"980:1306",                             // Super 8 gate
-		"0x0A0A0A",                             // canvas pad
-		"noise=",                               // grain
-		"fps=18",                               // posterize
-		"fps=30",                               // return to canvas rate without setpts stretch
-		"force_original_aspect_ratio=decrease", // no stretch on hero_outro photo
+		"eq=contrast=1.12:saturation=1.18", // punchy Kodak grade
+		"960:1280",                         // vintage film print gate
+		"0x0C0B0A",                         // warm-black matte
+		"curves=master=",
+		"colorbalance=",
+		"vignette=PI/5",
+		"noise=alls=14",
+		"fps=18", // posterize cadence
+		"fps=30", // return to canvas rate without setpts stretch
+		"2*sin(on/18)", // gate weave (no Ken Burns)
 	} {
 		if !strings.Contains(filter, need) {
 			t.Fatalf("Act 3 Style Profile graph missing %q\n%s", need, filter)
@@ -349,11 +352,16 @@ func TestBuildFilterComplex_Act3LookOnAllAct3Clips(t *testing.T) {
 	}
 	gate := fmt.Sprintf("%d:%d", Super8GateWidth, Super8GateHeight)
 	needs := []string{
-		gate,           // Super 8 gate size
-		"0x0A0A0A",     // canvas pad color
-		"noise=",       // Kodak grain path
-		"eq=saturation=",
+		gate,              // 960×1280 film print
+		"0x0C0B0A",        // warm-black matte
+		"curves=master=",  // lifted matte blacks
+		"colorbalance=",   // Kodak Gold / teal shadows
+		"eq=contrast=1.12:saturation=1.18",
+		"vignette=PI/5",
+		"unsharp=",
+		"noise=alls=14",
 		"fps=18",
+		"concat=n=3",
 	}
 	for _, need := range needs {
 		if !strings.Contains(filter, need) {

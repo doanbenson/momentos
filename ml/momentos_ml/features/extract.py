@@ -8,6 +8,10 @@ from pydantic import BaseModel, Field
 
 AssetType = Literal["photo", "video", "voice"]
 
+# Still images / unknown-duration picture Assets can be held for any positive
+# beat window. Downstream snap/validators need a positive source duration.
+PHOTO_SYNTHETIC_DURATION_MS = 10_000
+
 
 class AssetFeature(BaseModel):
     asset_id: str
@@ -16,6 +20,7 @@ class AssetFeature(BaseModel):
     duration_ms: int | None = None
     aspect: float | None = None  # width / height when both present
     storage_url: str | None = None  # signed download URL when job provides it
+    mime_type: str | None = None
 
 
 class JobAsset(BaseModel):
@@ -28,8 +33,18 @@ class JobAsset(BaseModel):
     width: int | None = None
     height: int | None = None
     storage_url: str | None = Field(default=None, alias="storageUrl")
+    mime_type: str | None = Field(default=None, alias="mimeType")
 
     model_config = {"populate_by_name": True}
+
+
+def _is_still_or_zero_duration(a: JobAsset) -> bool:
+    if a.type == "photo":
+        return True
+    mime = (a.mime_type or "").lower()
+    if mime.startswith("image/"):
+        return True
+    return a.duration_ms is not None and a.duration_ms == 0
 
 
 def extract_features(assets: list[JobAsset] | list[dict[str, Any]]) -> list[AssetFeature]:
@@ -41,8 +56,8 @@ def extract_features(assets: list[JobAsset] | list[dict[str, Any]]) -> list[Asse
         if a.width and a.height and a.height > 0:
             aspect = a.width / a.height
         duration = a.duration_ms
-        if a.type == "photo":
-            duration = None  # hold length comes from beat span after snap
+        if _is_still_or_zero_duration(a):
+            duration = PHOTO_SYNTHETIC_DURATION_MS
         features.append(
             AssetFeature(
                 asset_id=a.id,
@@ -51,6 +66,7 @@ def extract_features(assets: list[JobAsset] | list[dict[str, Any]]) -> list[Asse
                 duration_ms=duration,
                 aspect=aspect,
                 storage_url=a.storage_url,
+                mime_type=a.mime_type,
             )
         )
     features.sort(key=lambda f: f.intake_order)

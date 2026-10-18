@@ -169,12 +169,14 @@ func buildFilterComplex(plan Plan) (filter string, videoLabel, audioLabel string
 
 // appendPhotoClip builds one photo segment with Motion Preset.
 func appendPhotoClip(b *strings.Builder, inIdx int, label string, c ClipInput, frames int) {
+	// Act 3 Life on Film: fill film-gate print, subtle gate weave (no Ken Burns),
+	// then pad onto warm-black canvas. Color/grain/cadence applied in appendAct3Style.
+	if c.usesAct3Look() {
+		appendAct3PhotoMotion(b, inIdx, label, c, frames)
+		return
+	}
 	aspect := "increase"
 	cropOrPad := fmt.Sprintf("crop=%d:%d", CanvasWidth, CanvasHeight)
-	if c.usesAct3Look() {
-		aspect = "decrease"
-		cropOrPad = fmt.Sprintf("pad=%d:%d:(ow-iw)/2:(oh-ih)/2:%s", CanvasWidth, CanvasHeight, Act3CanvasPadColor)
-	}
 	motion := c.MotionPreset
 	if motion == "" {
 		motion = MotionHookSlowPush
@@ -210,6 +212,28 @@ func appendPhotoClip(b *strings.Builder, inIdx int, label string, c ClipInput, f
 			base, frames, CanvasWidth, CanvasHeight, FrameRate, label,
 		)
 	}
+}
+
+// appendAct3PhotoMotion scales to the 960×1280 film print with tiny gate weave.
+// Output stays at gate size; appendAct3Style grades + pads onto the canvas.
+// White-flash accents stay on the timeline overlay path (transitionIn / markers).
+func appendAct3PhotoMotion(b *strings.Builder, inIdx int, label string, c ClipInput, frames int) {
+	base := fmt.Sprintf(
+		"[%d:v]scale=%d:%d:force_original_aspect_ratio=increase,"+
+			"crop=%d:%d,setsar=1,format=yuv420p",
+		inIdx, Super8GateWidth, Super8GateHeight, Super8GateWidth, Super8GateHeight,
+	)
+	// Whip punch on first montage frame; else 2px film-gate weave (no Ken Burns).
+	zExpr := "1"
+	if c.MotionPreset == MotionWhipPunchIn {
+		zExpr = "if(eq(on\\,1)\\,1.04\\,1)"
+	}
+	fmt.Fprintf(b,
+		"%s,zoompan=z='%s':"+
+			"x='(iw-iw/zoom)/2+2*sin(on/18)':y='(ih-ih/zoom)/2+2*cos(on/22)':"+
+			"d=%d:s=%dx%d:fps=%d[%s];",
+		base, zExpr, frames, Super8GateWidth, Super8GateHeight, FrameRate, label,
+	)
 }
 
 func appendVideoClip(b *strings.Builder, inIdx int, label string, c ClipInput) {
@@ -265,20 +289,25 @@ func appendVideoClip(b *strings.Builder, inIdx int, label string, c ClipInput) {
 	}
 }
 
-// appendAct3Style applies Super 8 gate ~980×1306 on #0A0A0A, Kodak grade, grain, 18fps posterize.
+// appendAct3Style applies @lifeonfilm.27 vintage look on Act 3 clips:
+// fit to film print, Kodak Gold grade, vignette, 18fps grain, warm-black matte.
 func appendAct3Style(b *strings.Builder, inLabel, outLabel string) {
 	fmt.Fprintf(b,
 		"[%s]scale=%d:%d:force_original_aspect_ratio=decrease,"+
 			"pad=%d:%d:(ow-iw)/2:(oh-ih)/2:%s,"+
-			"pad=%d:%d:(ow-iw)/2:(oh-ih)/2:%s,"+
-			"eq=saturation=1.12:gamma_r=1.06:gamma_g=1.03:gamma_b=0.94,"+
-			"noise=alls=12:allf=t+u,"+
-			"fps=%d,fps=%d[%s];",
+			"curves=master='0/0.06 0.25/0.27 0.75/0.82 1/0.97',"+
+			"colorbalance=rs=-0.03:gs=0.04:bs=-0.02:rm=0.04:gm=0.02:bm=-0.04:rh=0.10:gh=0.05:bh=-0.08,"+
+			"eq=contrast=1.12:saturation=1.18:brightness=0.02,"+
+			"vignette=PI/5,"+
+			"unsharp=5:5:0.3:5:5:0.0,"+
+			"fps=%d,fps=%d,"+
+			"noise=alls=14:allf=t+u,"+
+			"pad=%d:%d:(ow-iw)/2:(oh-ih)/2:%s[%s];",
 		inLabel,
 		Super8GateWidth, Super8GateHeight,
 		Super8GateWidth, Super8GateHeight, Act3CanvasPadColor,
-		CanvasWidth, CanvasHeight, Act3CanvasPadColor,
-		Act3PosterizeFPS, FrameRate, outLabel,
+		Act3PosterizeFPS, FrameRate,
+		CanvasWidth, CanvasHeight, Act3CanvasPadColor, outLabel,
 	)
 }
 

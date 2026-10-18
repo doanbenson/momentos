@@ -64,3 +64,15 @@ _Avoid_: timeline tool, CapCut, studio
 **Beat Grid**:
 The deterministic set of beat/onset timestamps derived from Edit Audio that legal Cut clip boundaries must snap to.
 _Avoid_: tempo map (alone), waveform, BPM (alone)
+
+**Act**:
+A structural segment of a Moment’s Cut in the Life On Film Style Profile — Act 1 Reflection hook, Act 2 transition into the montage (flash/shutter), Act 3 photo/clip cycle + hero look (vintage film print) — expressed on the Cut so Render can apply segment-specific grammar.
+_Avoid_: chapter, scene (as the product noun for these segments)
+
+**Motion Preset**:
+A named camera-motion choice on a Cut clip (e.g. slow push, whip punch-in, handheld drift) that Render executes; planned by drafting, not chosen in a free-form Editor motion UI.
+_Avoid_: Ken Burns (as the domain noun), zoom effect, camera path
+
+**Visual Style**:
+A named look grammar on a Cut clip that Render applies (e.g. clean vertical vs Super 8 gate), distinct from Motion Preset and from the overall Style Profile id.
+_Avoid_: filter, LUT (as the domain noun for this clip field), grade (alone)

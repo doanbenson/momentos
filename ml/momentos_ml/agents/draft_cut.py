@@ -2,34 +2,58 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import time
+from pathlib import Path
 from typing import Any
+
+# #region agent log
+_DEBUG_LOG = Path(__file__).resolve().parents[3] / "debug-ee3cf6.log"
+
+
+def _agent_dbg(
+    hypothesis_id: str, location: str, message: str, data: dict[str, Any]
+) -> None:
+    try:
+        payload = {
+            "sessionId": "ee3cf6",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with _DEBUG_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, default=str) + "\n")
+    except Exception:
+        pass
+
+
+# #endregion
 
 from momentos_ml.agents import gemini_planner
 from momentos_ml.agents.director import (
     DirectorPlan,
     PlacementImpossibleError,
+    infer_reflection_id,
     plan_cut as director_plan_cut,
 )
 from momentos_ml.align.aligner import AlignmentResult, align_reflection
 from momentos_ml.beat.grid import BeatGrid, build_beat_grid, load_edit_audio_bytes
 from momentos_ml.beat.snap import (
     PlannerPlacement,
-    SnapError,
     offset_captions,
     snap_markers,
     snap_to_grid,
 )
 from momentos_ml.config import (
-    MAX_REPAIR_ATTEMPTS,
     MVP_SONG_PICK_ID,
     Settings,
     load_settings,
 )
-from momentos_ml.agents.director import infer_reflection_id
 from momentos_ml.features.extract import AssetFeature, JobAsset, extract_features
 from momentos_ml.media.download import materialize_asset
-from momentos_ml.styles.song_pick import HERO_OUTRO_SPAN_BEATS
 from momentos_ml.validate.cut_schema import Cut, build_cut
 from momentos_ml.vision.score import score_montage_candidates
 
@@ -53,10 +77,12 @@ def draft_cut(
     """
     Draft a schema-valid Cut.
 
-    Stage order (ADR 0013 / hackathon spec):
-      aligner → vision scoring → director/planner → snap → validate.
+    Stage order:
+      aligner → vision scoring → optional Gemini montage order →
+      deterministic beat stepping → snap → validate.
 
-    Retries planner ≤ MAX_REPAIR_ATTEMPTS on snap/validate failure, then raises.
+    Beat indices are authored in Python (not by the LLM). Gemini may only
+    reorder montage Asset ids; failures fall back to intake/chronological order.
     """
     settings = settings or load_settings()
     song_pick_id = song_pick_id or MVP_SONG_PICK_ID
@@ -147,59 +173,98 @@ def _plan_snap_validate(
         settings=settings,
     )
 
-    last_err: Exception | None = None
-    repair_note: str | None = None
-    for attempt in range(MAX_REPAIR_ATTEMPTS + 1):
-        try:
-            plan = _run_director(
-                features,
-                grid,
-                settings,
-                alignment=alignment,
-                scores=scores,
-                reflection_asset_id=reflection_id,
-                prior_hint=prior_hint,
-                asset_order=asset_order,
-                repair_note=repair_note,
-            )
-            _assert_place_all_once(plan.placements, features)
-            clips = snap_to_grid(plan.placements, grid, features)
-            markers = snap_markers(plan.markers, grid)
-            captions = _timeline_captions(plan, clips)
-            return build_cut(
-                moment_id=moment_id,
-                song_pick_id=song_pick_id,
-                clips=clips,
-                captions=captions,
-                markers=markers,
-                version=version,
-            )
-        except PlacementImpossibleError:
-            # Place-all-once failures are not repairable by re-prompting (ADR 0017).
-            raise
-        except (SnapError, ValueError, gemini_planner.GeminiPlannerError) as e:
-            last_err = e
-            repair_note = str(e)
-            logger.warning("cut plan attempt %s failed: %s", attempt + 1, e)
-    raise RuntimeError(
-        f"Cut draft failed after {MAX_REPAIR_ATTEMPTS + 1} attempts: {last_err}"
-    ) from last_err
+    order = _resolve_montage_order(
+        features=features,
+        settings=settings,
+        reflection_asset_id=reflection_id,
+        asset_order=asset_order,
+        prior_hint=prior_hint,
+    )
+    plan = director_plan_cut(
+        features,
+        grid,
+        alignment=alignment,
+        scores=scores,
+        reflection_asset_id=reflection_id,
+        asset_order=order,
+    )
+    _assert_every_asset_placed(plan.placements, features)
+    clips = snap_to_grid(plan.placements, grid, features)
+    markers = snap_markers(plan.markers, grid)
+    captions = _timeline_captions(plan, clips)
+    return build_cut(
+        moment_id=moment_id,
+        song_pick_id=song_pick_id,
+        clips=clips,
+        captions=captions,
+        markers=markers,
+        version=version,
+    )
 
 
-def _assert_place_all_once(
+def _resolve_montage_order(
+    *,
+    features: list[AssetFeature],
+    settings: Settings,
+    reflection_asset_id: str | None,
+    asset_order: list[str] | None,
+    prior_hint: str | None,
+) -> list[str] | None:
+    """Optional Gemini storytelling order; always safe to fall back."""
+    if asset_order is not None:
+        return asset_order
+    chrono = [
+        f.asset_id
+        for f in sorted(features, key=lambda x: x.intake_order)
+        if f.asset_id != reflection_asset_id
+    ]
+    if settings.cut_planner != "gemini":
+        return None  # director uses vision scores / intake order
+    try:
+        ordered = gemini_planner.plan_montage_order(
+            features,
+            settings,
+            reflection_asset_id=reflection_asset_id,
+            prior_hint=prior_hint,
+        )
+        if ordered:
+            # #region agent log
+            _agent_dbg(
+                "D",
+                "draft_cut.py:_resolve_montage_order",
+                "gemini montage order",
+                {"ordered": ordered, "fallback": chrono},
+            )
+            # #endregion
+            return ordered
+    except gemini_planner.GeminiPlannerError as e:
+        logger.warning("Gemini montage order failed; using chronological: %s", e)
+    return chrono
+
+
+def _assert_every_asset_placed(
     placements: list[PlannerPlacement], features: list[AssetFeature]
 ) -> None:
-    """Every Moment Asset appears exactly once (ADR 0017)."""
+    """Every Moment Asset appears ≥ once (cycling may reuse montage ids)."""
     placed = [p.asset_id for p in placements]
     expected = {f.asset_id for f in features}
-    if set(placed) != expected:
+    # #region agent log
+    _agent_dbg(
+        "A",
+        "draft_cut.py:_assert_every_asset_placed",
+        "coverage check",
+        {
+            "expected": sorted(expected),
+            "placed": placed,
+            "missing": sorted(expected - set(placed)),
+            "feature_types": {f.asset_id: f.type for f in features},
+        },
+    )
+    # #endregion
+    if not expected.issubset(set(placed)):
         missing = sorted(expected - set(placed))
         raise PlacementImpossibleError(
-            f"cannot place all Assets once; missing={missing} (place-all-once)"
-        )
-    if len(placed) != len(set(placed)):
-        raise PlacementImpossibleError(
-            "multi-cycle Asset reuse is not allowed in MVP (place-all-once)"
+            f"cannot place all Assets; missing={missing}"
         )
 
 
@@ -207,95 +272,6 @@ def _timeline_captions(plan: DirectorPlan, clips: list) -> list:
     reflection = next((c for c in clips if c.role == "reflection"), None)
     start_ms = reflection.start_ms if reflection and reflection.start_ms is not None else 0
     return offset_captions(plan.captions, start_ms)
-
-
-def _run_director(
-    features: list[AssetFeature],
-    grid: BeatGrid,
-    settings: Settings,
-    *,
-    alignment: AlignmentResult,
-    scores: list,
-    reflection_asset_id: str | None,
-    prior_hint: str | None,
-    asset_order: list[str] | None,
-    repair_note: str | None,
-) -> DirectorPlan:
-    if settings.cut_planner == "stub":
-        return director_plan_cut(
-            features,
-            grid,
-            alignment=alignment,
-            scores=scores,
-            reflection_asset_id=reflection_asset_id,
-            asset_order=asset_order,
-        )
-
-    # Gemini emits placements; wrap with stub markers/captions from aligner.
-    placements = gemini_planner.plan_placements(
-        features,
-        grid,
-        settings,
-        prior_hint=prior_hint,
-        repair_note=repair_note,
-    )
-    # Infer roles + force legal 4-beat hero_outro (Gemini often emits 2-beat finale).
-    enriched = _enrich_gemini_placements(
-        placements,
-        reflection_asset_id=reflection_asset_id,
-        beat_count=len(grid.beat_ms),
-    )
-    stub = director_plan_cut(
-        features,
-        grid,
-        alignment=alignment,
-        scores=scores,
-        reflection_asset_id=reflection_asset_id,
-        asset_order=asset_order,
-    )
-    return DirectorPlan(
-        placements=enriched,
-        markers=stub.markers,
-        captions=alignment.captions,
-    )
-
-
-def _enrich_gemini_placements(
-    placements: list[PlannerPlacement],
-    *,
-    reflection_asset_id: str | None,
-    beat_count: int,
-) -> list[PlannerPlacement]:
-    if not placements:
-        return placements
-    out: list[PlannerPlacement] = []
-    last = len(placements) - 1
-    for i, p in enumerate(placements):
-        role = p.role
-        start_beat = p.start_beat
-        end_beat = p.end_beat
-        if reflection_asset_id and p.asset_id == reflection_asset_id and i == 0:
-            role = "reflection"
-        elif i == last:
-            role = "hero_outro"
-            # Deterministic 4-beat exclusive span (mirrors stub director).
-            max_start = max(0, beat_count - HERO_OUTRO_SPAN_BEATS)
-            if start_beat > max_start:
-                start_beat = max_start
-            end_beat = min(start_beat + HERO_OUTRO_SPAN_BEATS, beat_count)
-            if end_beat <= start_beat:
-                end_beat = min(start_beat + HERO_OUTRO_SPAN_BEATS, beat_count)
-        else:
-            role = "montage"
-        out.append(
-            PlannerPlacement(
-                asset_id=p.asset_id,
-                start_beat=start_beat,
-                end_beat=end_beat,
-                role=role,
-            )
-        )
-    return out
 
 
 def draft_cut_legacy(assets: list[dict[str, Any]], song_pick_id: str) -> dict[str, Any]:

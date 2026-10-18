@@ -111,8 +111,8 @@ def test_stub_draft_produces_validated_cut_with_roles_captions_markers():
     assert validated.song_pick_id == "live-a-life-you-will-remember"
 
 
-def test_stub_draft_places_every_asset_once_shortening_holds():
-    """Place-all-once: shrink photo holds to min legal spans before dropping (ADR 0017)."""
+def test_stub_draft_places_every_asset_and_cycles_when_short():
+    """Every Asset ≥ once; fewer than 10 montage Assets cycle a second pass."""
     reflection_id = _uuid(1)
     photo_ids = [_uuid(10 + i) for i in range(8)]
     assets = [
@@ -124,20 +124,22 @@ def test_stub_draft_places_every_asset_once_shortening_holds():
         },
         *[{"id": pid, "type": "photo", "order": i + 1} for i, pid in enumerate(photo_ids)],
     ]
-    # Tight grid: preferred 2-beat photo holds would silently drop; min 1-beat fits.
-    fake_grid = _grid(20)
+    # Room for cycle: reflection + 8*2 body + 8*2 cycle body + 4 hero (approx).
+    fake_grid = _grid(80)
 
     cut = _draft(assets, grid=fake_grid, reflection_id=reflection_id)
     validated = validate_cut(cut.model_dump(by_alias=True))
 
     placed = [c.asset_id for c in validated.clips]
-    assert set(placed) == {reflection_id, *photo_ids}
-    assert len(placed) == len(set(placed))  # no multi-cycle reuse
+    assert {reflection_id, *photo_ids}.issubset(set(placed))
+    # Cycle doubles montage slots (8 unique → 16 picture slots incl. hero).
+    picture = [c for c in validated.clips if c.role != "reflection"]
+    assert len(picture) > len(photo_ids)
     assert validated.clips[-1].role == "hero_outro"
 
 
 def test_stub_draft_fails_clearly_when_placement_impossible():
-    """When even min legal spans cannot fit every Asset, cut-draft fails (ADR 0017)."""
+    """When even min legal spans cannot fit every Asset, cut-draft fails."""
     reflection_id = _uuid(1)
     photo_ids = [_uuid(20 + i) for i in range(10)]
     assets = [
@@ -157,7 +159,7 @@ def test_stub_draft_fails_clearly_when_placement_impossible():
 
 
 def test_stub_draft_authors_act_motion_look_and_transition_in():
-    """Planner-authored Act / Motion Preset / Visual Style / transitionIn (ADR 0015/0020)."""
+    """Act 3 Life on Film look on montage + hero; flash into first photo."""
     reflection_id = _uuid(1)
     photo_a = _uuid(2)
     photo_b = _uuid(3)
@@ -174,21 +176,23 @@ def test_stub_draft_authors_act_motion_look_and_transition_in():
     cut = _draft(assets, grid=_grid(40), reflection_id=reflection_id)
     validated = validate_cut(cut.model_dump(by_alias=True))
 
-    by_role = {c.role: c for c in validated.clips}
-    assert by_role["reflection"].act == 1
-    assert by_role["reflection"].motion_preset is None
-    assert by_role["reflection"].visual_style == "clean_916"
-    assert by_role["reflection"].transition_in == "none"
+    reflection = next(c for c in validated.clips if c.role == "reflection")
+    first_montage = next(c for c in validated.clips if c.role == "montage")
+    hero = next(c for c in validated.clips if c.role == "hero_outro")
 
-    assert by_role["montage"].act == 2
-    assert by_role["montage"].motion_preset is not None
-    assert by_role["montage"].visual_style == "clean_916"
-    # Intentional Act 2 accent — not the role→hard_cut default (ADR 0021).
-    assert by_role["montage"].transition_in == "white_flash"
+    assert reflection.act == 1
+    assert reflection.motion_preset is None
+    assert reflection.visual_style == "clean_916"
+    assert reflection.transition_in == "none"
 
-    assert by_role["hero_outro"].act == 3
-    assert by_role["hero_outro"].motion_preset == "handheld_super8_drift"
-    assert by_role["hero_outro"].visual_style == "super8_gate"
+    assert first_montage.act == 3
+    assert first_montage.motion_preset is not None
+    assert first_montage.visual_style == "super8_gate"
+    assert first_montage.transition_in == "white_flash"
+
+    assert hero.act == 3
+    assert hero.motion_preset == "handheld_super8_drift"
+    assert hero.visual_style == "super8_gate"
 
     # Picture clips must carry a Motion Preset (ADR 0015).
     for c in validated.clips:
