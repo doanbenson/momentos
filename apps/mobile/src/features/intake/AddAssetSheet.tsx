@@ -2,8 +2,11 @@ import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, radius, space } from "@/theme/tokens";
 import { fonts, typography } from "@/theme/typography";
 
+export type AddAssetMode = "montage" | "reflection";
+
 type Props = {
   visible: boolean;
+  mode?: AddAssetMode;
   onClose: () => void;
   onPickLibrary: () => void;
   onRecordVideo: () => void;
@@ -12,21 +15,36 @@ type Props = {
 
 export function AddAssetSheet({
   visible,
+  mode = "montage",
   onClose,
   onPickLibrary,
   onRecordVideo,
   onRecordVoice,
 }: Props) {
+  const isReflection = mode === "reflection";
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <Text style={styles.title}>Add Asset</Text>
-          <Text style={styles.sub}>Photos, videos, or a voice note from your week.</Text>
+          <Text style={styles.title}>
+            {isReflection ? "Add Reflection" : "Add Asset"}
+          </Text>
+          <Text style={styles.sub}>
+            {isReflection
+              ? "Talking-head video preferred; voice note allowed."
+              : "Photos or videos from your week for the montage."}
+          </Text>
 
-          <Action label="Library" hint="Photos & videos" onPress={onPickLibrary} />
+          <Action
+            label="Library"
+            hint={isReflection ? "Pick a video" : "Photos & videos"}
+            onPress={onPickLibrary}
+          />
           <Action label="Record video" hint="Camera" onPress={onRecordVideo} />
-          <Action label="Record voice" hint="In-app mic" onPress={onRecordVoice} />
+          {isReflection ? (
+            <Action label="Record voice" hint="In-app mic" onPress={onRecordVoice} />
+          ) : null}
 
           <Pressable onPress={onClose} style={styles.cancel}>
             <Text style={styles.cancelText}>Cancel</Text>

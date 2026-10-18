@@ -11,16 +11,22 @@ import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BrandMark } from "@/components/BrandMark";
 import { BrassButton } from "@/components/BrassButton";
+import { MVP_REFLECTION_QUESTION } from "@/config/reflection";
 import { MVP_SONG_PICK } from "@/config/song-pick";
 import { registerLocalAsset } from "@/lib/assets";
 import { createMoment } from "@/lib/moments";
-import { colors, space } from "@/theme/tokens";
+import { colors, radius, space } from "@/theme/tokens";
 import { typography } from "@/theme/typography";
-import { AddAssetSheet } from "./AddAssetSheet";
+import { AddAssetSheet, type AddAssetMode } from "./AddAssetSheet";
 import { AssetFilmStrip } from "./AssetFilmStrip";
 import { VoiceRecorderSheet } from "./VoiceRecorderSheet";
 import type { IntakeAsset } from "./types";
-import { MAX_INTAKE_ASSETS, MIN_INTAKE_ASSETS } from "./types";
+import {
+  canBeReflection,
+  MAX_INTAKE_ASSETS,
+  MIN_INTAKE_ASSETS,
+  reflectionAsset,
+} from "./types";
 
 function newKey() {
   return `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -41,48 +47,85 @@ export function WeekIntakeScreen() {
   const router = useRouter();
   const [assets, setAssets] = useState<IntakeAsset[]>([]);
   const [addOpen, setAddOpen] = useState(false);
+  const [addMode, setAddMode] = useState<AddAssetMode>("montage");
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [composing, setComposing] = useState(false);
 
-  const addAsset = useCallback((asset: Omit<IntakeAsset, "key">) => {
-    setAssets((prev) => {
-      if (prev.length >= MAX_INTAKE_ASSETS) return prev;
-      return [...prev, { ...asset, key: newKey() }];
-    });
+  const openAdd = useCallback((mode: AddAssetMode) => {
+    setAddMode(mode);
+    setAddOpen(true);
   }, []);
+
+  const addAsset = useCallback(
+    (asset: Omit<IntakeAsset, "key">) => {
+      setAssets((prev) => {
+        if (prev.length >= MAX_INTAKE_ASSETS) return prev;
+        const next = asset.isReflection
+          ? prev.map((a) => ({ ...a, isReflection: false }))
+          : prev;
+        return [...next, { ...asset, key: newKey() }];
+      });
+    },
+    [],
+  );
 
   const removeAsset = useCallback((key: string) => {
     setAssets((prev) => prev.filter((a) => a.key !== key));
   }, []);
 
+  const setReflection = useCallback((key: string) => {
+    setAssets((prev) => {
+      const target = prev.find((a) => a.key === key);
+      if (!target || !canBeReflection(target.type)) return prev;
+      return prev.map((a) => ({
+        ...a,
+        isReflection: a.key === key,
+      }));
+    });
+  }, []);
+
   async function pickLibrary() {
     setAddOpen(false);
+    const forReflection = addMode === "reflection";
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert("Library", "Photo library permission is required.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      mediaTypes: forReflection
+        ? ImagePicker.MediaTypeOptions.Videos
+        : ImagePicker.MediaTypeOptions.All,
       quality: 0.9,
-      allowsMultipleSelection: true,
-      selectionLimit: MAX_INTAKE_ASSETS - assets.length,
+      allowsMultipleSelection: !forReflection,
+      selectionLimit: forReflection
+        ? 1
+        : MAX_INTAKE_ASSETS - assets.length,
     });
     if (result.canceled) return;
     for (const asset of result.assets) {
       const isVideo = asset.type === "video";
+      if (forReflection && !isVideo) {
+        Alert.alert(
+          "Reflection",
+          "Pick a talking-head video (or record a voice note).",
+        );
+        continue;
+      }
       addAsset({
         localUri: asset.uri,
         type: isVideo ? "video" : "photo",
         mimeType:
           asset.mimeType ??
           mimeFromUri(asset.uri, isVideo ? "video/mp4" : "image/jpeg"),
+        isReflection: forReflection,
       });
     }
   }
 
   async function recordVideo() {
     setAddOpen(false);
+    const forReflection = addMode === "reflection";
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
       Alert.alert("Camera", "Camera permission is required.");
@@ -98,6 +141,7 @@ export function WeekIntakeScreen() {
       localUri: asset.uri,
       type: "video",
       mimeType: asset.mimeType ?? mimeFromUri(asset.uri, "video/mp4"),
+      isReflection: forReflection,
     });
   }
 
@@ -107,26 +151,43 @@ export function WeekIntakeScreen() {
   }
 
   async function compose() {
+    const reflection = reflectionAsset(assets);
+    if (!reflection) {
+      Alert.alert(
+        "Reflection required",
+        "Add exactly one Reflection (talking-head video or voice) before composing.",
+      );
+      return;
+    }
     if (assets.length < MIN_INTAKE_ASSETS) return;
     setComposing(true);
     try {
-      const assetIds: string[] = [];
+      const registered: { assetId: string; isReflection: boolean }[] = [];
       for (const draft of assets) {
-        if (draft.assetId) {
-          assetIds.push(draft.assetId);
-          continue;
+        let assetId = draft.assetId;
+        if (!assetId) {
+          // Requires gateway + media-service running with Supabase Storage
+          assetId = await registerLocalAsset({
+            localUri: draft.localUri,
+            type: draft.type,
+            mimeType: draft.mimeType,
+          });
         }
-        // Requires gateway + media-service running with Supabase Storage
-        const id = await registerLocalAsset({
-          localUri: draft.localUri,
-          type: draft.type,
-          mimeType: draft.mimeType,
+        registered.push({
+          assetId,
+          isReflection: Boolean(draft.isReflection),
         });
-        assetIds.push(id);
+      }
+
+      const reflectionAssetId = registered.find((r) => r.isReflection)?.assetId;
+      if (!reflectionAssetId) {
+        throw new Error("Reflection Asset was not registered.");
       }
 
       const moment = await createMoment({
-        assetIds,
+        assetIds: registered.map((r) => r.assetId),
+        reflectionAssetId,
+        reflectionQuestion: MVP_REFLECTION_QUESTION,
         songPickId: MVP_SONG_PICK.id,
       });
 
@@ -146,7 +207,9 @@ export function WeekIntakeScreen() {
     }
   }
 
-  const canCompose = assets.length >= MIN_INTAKE_ASSETS && !composing;
+  const hasReflection = Boolean(reflectionAsset(assets));
+  const canCompose =
+    assets.length >= MIN_INTAKE_ASSETS && hasReflection && !composing;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
@@ -154,21 +217,40 @@ export function WeekIntakeScreen() {
         <BrandMark variant="hero" />
         <Text style={styles.invite}>This week, in a few frames.</Text>
         <Text style={styles.body}>
-          Add up to {MAX_INTAKE_ASSETS} photos, videos, or voice notes. We&apos;ll
-          draft a Cut and render your Moment.
+          Answer the Reflection, then add up to {MAX_INTAKE_ASSETS} Assets from
+          your week. We&apos;ll draft a Cut and render your Moment.
         </Text>
+
+        <View style={styles.questionCard}>
+          <Text style={styles.questionLabel}>REFLECTION</Text>
+          <Text style={styles.question}>{MVP_REFLECTION_QUESTION}</Text>
+          <Text style={styles.questionHint}>
+            {hasReflection
+              ? "Reflection ready. Tap another video or voice in the strip to swap."
+              : "Talking-head preferred; voice allowed. Required before compose."}
+          </Text>
+          <BrassButton
+            label={hasReflection ? "Replace Reflection" : "Add Reflection"}
+            onPress={() => openAdd("reflection")}
+            style={styles.reflectionCta}
+          />
+        </View>
 
         <View style={styles.counterRow}>
           <Text style={styles.counter}>
             {assets.length}/{MAX_INTAKE_ASSETS}
           </Text>
           <Text style={styles.counterHint}>Assets</Text>
+          {!hasReflection ? (
+            <Text style={styles.missingHint}>· needs Reflection</Text>
+          ) : null}
         </View>
 
         <AssetFilmStrip
           assets={assets}
-          onAdd={() => setAddOpen(true)}
+          onAdd={() => openAdd("montage")}
           onRemove={removeAsset}
+          onSetReflection={setReflection}
         />
 
         <BrassButton
@@ -182,6 +264,7 @@ export function WeekIntakeScreen() {
 
       <AddAssetSheet
         visible={addOpen}
+        mode={addMode}
         onClose={() => setAddOpen(false)}
         onPickLibrary={pickLibrary}
         onRecordVideo={recordVideo}
@@ -191,7 +274,12 @@ export function WeekIntakeScreen() {
         visible={voiceOpen}
         onClose={() => setVoiceOpen(false)}
         onSaved={(uri, mimeType) =>
-          addAsset({ localUri: uri, type: "voice", mimeType })
+          addAsset({
+            localUri: uri,
+            type: "voice",
+            mimeType,
+            isReflection: true,
+          })
         }
       />
     </SafeAreaView>
@@ -207,6 +295,28 @@ const styles = StyleSheet.create({
   },
   invite: { ...typography.title, marginTop: space.md },
   body: { ...typography.body },
+  questionCard: {
+    marginTop: space.sm,
+    padding: space.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    backgroundColor: colors.surface,
+    gap: space.sm,
+  },
+  questionLabel: {
+    ...typography.label,
+    color: colors.primary,
+  },
+  question: {
+    ...typography.bodyStrong,
+  },
+  questionHint: {
+    ...typography.caption,
+  },
+  reflectionCta: {
+    marginTop: space.xs,
+  },
   counterRow: {
     flexDirection: "row",
     alignItems: "baseline",
@@ -220,5 +330,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   counterHint: { ...typography.label },
+  missingHint: {
+    ...typography.caption,
+    color: colors.error,
+  },
   cta: { marginTop: space.lg },
 });
